@@ -16,7 +16,7 @@ app = FastAPI(title="CampusFlow API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"], # Allows your React app to talk to it
+    allow_origins=["http://localhost:5173", "https://campus-flow-tejas.vercel.app"], # Allows your React app to talk to it
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
