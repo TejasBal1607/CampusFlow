@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 
-import models
-from database import engine
-from routers import expenses
-from routers import ledger
-from routers import finance
-from routers import users
-from routers import auth
+from app import models
+from app.database import engine
+from app.routers import expenses
+from app.routers import ledger
+from app.routers import finance
+from app.routers import users
+from app.routers import auth
 
 from fastapi.middleware.cors import CORSMiddleware
 # This generates the tables in Neon!

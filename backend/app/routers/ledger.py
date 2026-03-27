@@ -6,10 +6,10 @@ from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-import models
-from database import get_db
+from app import models
+from app.database import get_db
 
-from routers.expenses import ExpenseCategory, ExpenseCreate, create_expense
+from app.routers.expenses import ExpenseCategory, ExpenseCreate, create_expense
 
 router = APIRouter(prefix="/ledger", tags=["Ledger"])
 

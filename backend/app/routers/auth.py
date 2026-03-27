@@ -9,8 +9,8 @@ from jose import JWTError, jwt
 from google.oauth2 import id_token
 from google.auth.transport import requests
 
-import models
-from database import get_db
+import app.models as models
+from app.database import get_db
 
 # Security Configuration
 SECRET_KEY = "MARZI@MERI?"

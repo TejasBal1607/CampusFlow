@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, Date, Boolean, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
-from utils import get_today_ist
+from app.utils import get_today_ist
 Base = declarative_base()
 
 class User(Base):

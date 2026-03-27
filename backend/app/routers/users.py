@@ -6,9 +6,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 # Make sure this import path matches your project structure
-from routers.auth import get_current_user 
-import models
-from database import get_db
+from app.routers.auth import get_current_user 
+from app import models
+from app.database import get_db
 
 router = APIRouter(prefix="/users", tags=["Users"])
 

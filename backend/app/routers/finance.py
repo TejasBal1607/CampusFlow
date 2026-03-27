@@ -1,5 +1,5 @@
 import calendar
-from utils import get_today_ist
+from app.utils import get_today_ist
 from datetime import date as dt_date # Prevent naming collisions
 from typing import Dict, List, Optional
 
@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy import extract, func, or_, and_
 from sqlalchemy.orm import Session
 
-import models
-from database import get_db
+from app import models
+from app.database import get_db
 
 router = APIRouter(prefix="/finance", tags=["Finance"])
 

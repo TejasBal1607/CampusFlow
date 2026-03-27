@@ -11,9 +11,9 @@ from fastapi.concurrency import run_in_threadpool
 from google import genai
 from google.genai import types
 
-import models
-from database import get_db
-from utils import get_today_ist
+import app.models as models
+from app.database import get_db
+from app.utils import get_today_ist
 from enum import Enum
 
 router = APIRouter(prefix="/expenses", tags=["Expenses"])
