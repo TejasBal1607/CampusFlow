@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Edit2, ArrowLeft, Plus, Camera, Users, Repea
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const API_HOST = 'http://localhost:8000';
+const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
 export default function Vault() {
   const token = localStorage.getItem('cf_token');

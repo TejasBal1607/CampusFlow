@@ -6,6 +6,10 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Home, Wallet, BookOpen, ShoppingBag, Settings, RefreshCw, Edit3, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+
+// --- ADDED THIS LINE ---
+const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
+
 // ==========================================
 // UTILS & GENERATORS
 // ==========================================
@@ -69,7 +73,8 @@ export default function App() {
 
   const fetchProfile = async (token: string) => {
     try {
-      const res = await axios.get(`http://localhost:8000/auth/me?token=${token}`);
+      // --- UPDATED TO USE API_HOST ---
+      const res = await axios.get(`${API_HOST}/auth/me?token=${token}`);
       setCurrentUserId(res.data.id);
       setCurrentUserName(res.data.name);
       setUserDetails({
@@ -83,7 +88,8 @@ export default function App() {
   const updateProfile = async (updates: any) => {
     const token = localStorage.getItem('cf_token');
     try {
-      const res = await axios.put(`http://localhost:8000/auth/me?token=${token}`, updates);
+      // --- UPDATED TO USE API_HOST ---
+      const res = await axios.put(`${API_HOST}/auth/me?token=${token}`, updates);
       setCurrentUserName(res.data.name);
       setUserDetails({
         email: res.data.email, phone: res.data.phone || '',
@@ -116,7 +122,6 @@ export default function App() {
     const success = await updateProfile({
       name: editForm.name, 
       phone: editForm.phone
-      // Removed email and password!
     });
     if (success) setIsEditingProfile(false);
   };
@@ -130,7 +135,8 @@ export default function App() {
   }
 
   return (
-    <div className="bg-slate-950 min-h-screen text-slate-100 font-caveat flex flex-col">      {/* --- TOP HEADER --- */}
+    <div className="bg-slate-950 min-h-screen text-slate-100 font-caveat flex flex-col">      
+      {/* --- TOP HEADER --- */}
       <motion.header className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-4 sm:px-5 bg-slate-950/90 backdrop-blur-md z-50 border-b-2 border-slate-800 border-dashed">
         <span className="text-3xl font-black text-slate-100 tracking-tight">Campus<span className="text-blue-500">FLOW</span></span>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-12 h-12">
@@ -161,7 +167,8 @@ export default function App() {
       </motion.header>
 
       {/* --- CONTENT --- */}
-        <main className="flex-1 w-full max-w-md mx-auto relative pt-20 pb-24">        <AnimatePresence mode="wait">
+      <main className="flex-1 w-full max-w-md mx-auto relative pt-20 pb-24">        
+        <AnimatePresence mode="wait">
           <motion.div key={`${activeTab}-${refreshKey}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
             {activeTab === 'home' && <Dashboard navigateTo={setActiveTab} />}
             {activeTab === 'vault' && <Vault />}

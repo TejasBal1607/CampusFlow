@@ -4,8 +4,13 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Home, Wallet, BookOpen, ShoppingBag, Settings, Pin } from 'lucide-react';
 
-export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) => void }) {  const [activeNav, setActiveNav] = useState('home');
+// --- ADDED THIS LINE ---
+const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
+
+export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) => void }) {  
+  const [activeNav, setActiveNav] = useState('home');
   const [currentNoticeIndex, setCurrentNoticeIndex] = useState(0);
+  
   // --- REAL BACKEND CONNECTION ---
   // Default fallback data while loading
   const [financeData, setFinanceData] = useState({ ideal_month_avg: 0, percentage: 0 });
@@ -21,8 +26,8 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
         const token = localStorage.getItem('cf_token');
         const currentUserId = token ? parseInt(JSON.parse(atob(token.split('.')[1])).sub) : 1; 
         
-        // Using your updated path format: /summary/{currentUserId}
-        const url = `http://localhost:8000/finance/summary/${currentUserId}?month=${currentMonth}&year=${currentYear}`;
+        // --- UPDATED TO USE API_HOST ---
+        const url = `${API_HOST}/finance/summary/${currentUserId}?month=${currentMonth}&year=${currentYear}`;
         
         const response = await axios.get(url);
         

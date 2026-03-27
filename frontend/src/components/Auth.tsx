@@ -4,6 +4,9 @@ import { motion } from 'framer-motion';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
 
+// --- ADDED THIS LINE ---
+const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
+
 export default function Auth({ onLoginSuccess }: { onLoginSuccess: (token: string, userId: number, name: string) => void }) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -13,8 +16,8 @@ export default function Auth({ onLoginSuccess }: { onLoginSuccess: (token: strin
     setErrorMsg('');
     
     try {
-      // Send the Google token to our backend to verify and check domain
-      const res = await axios.post('http://localhost:8000/auth/google', {
+      // --- UPDATED TO USE API_HOST ---
+      const res = await axios.post(`${API_HOST}/auth/google`, {
         token: credentialResponse.credential
       });
       
@@ -51,7 +54,7 @@ export default function Auth({ onLoginSuccess }: { onLoginSuccess: (token: strin
     <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 relative text-slate-100 font-caveat bg-slate-950 overflow-hidden">
       
       {/* ========================================== */}
-      {/* CLUTTERED DESK BACKGROUND DIORAMA         */}
+      {/* CLUTTERED DESK BACKGROUND DIORAMA          */}
       {/* ========================================== */}
       <div className="absolute inset-0 pointer-events-none z-0 opacity-100">
         <div className="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.05)_1px,transparent_1px)] bg-[size:30px_30px]" />
