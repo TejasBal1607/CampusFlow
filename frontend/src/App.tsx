@@ -2,6 +2,7 @@ import axios from 'axios';
 import Dashboard from './components/Dashboard';
 import Vault from './components/Vault';
 import Auth from './components/Auth';
+import Daily from './components/Daily';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Home, Wallet, BookOpen, ShoppingBag, Settings, RefreshCw, Edit3, ArrowLeft, CheckCircle2 } from 'lucide-react';
@@ -172,13 +173,14 @@ export default function App() {
           <motion.div key={`${activeTab}-${refreshKey}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
             {activeTab === 'home' && <Dashboard navigateTo={setActiveTab} />}
             {activeTab === 'vault' && <Vault />}
+            {activeTab === 'daily' && <Daily />}
           </motion.div>
         </AnimatePresence>
       </main>
 
       {/* --- BOTTOM NAV --- */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-md border-t-2 border-slate-800 border-dashed px-4 py-3 flex justify-around">
-        {[{ id: 'home', icon: Home, label: 'HOME' }, { id: 'vault', icon: Wallet, label: 'VAULT' }, { id: 'acad', icon: BookOpen, label: 'ACAD' }, { id: 'bazaar', icon: ShoppingBag, label: 'BAZAAR' }].map(item => (
+        {[{ id: 'home', icon: Home, label: 'HOME' }, { id: 'vault', icon: Wallet, label: 'VAULT' }, { id: 'daily', icon: BookOpen, label: 'DAILY' }, { id: 'bazaar', icon: ShoppingBag, label: 'BAZAAR' }].map(item => (
           <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 px-4 ${activeTab === item.id ? 'text-slate-100' : 'text-slate-500'}`}>
             <item.icon size={26} />
             <span className="text-lg font-bold">{item.label}</span>

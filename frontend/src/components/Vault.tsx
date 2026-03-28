@@ -334,7 +334,7 @@ export default function Vault() {
     doc.setFont('helvetica', 'normal');
     doc.text(`Net Cash In: Rs. ${overviewData.netCashIn}`, 14, 60);
     doc.text(`Total Expenses: Rs. ${overviewData.totalExpenses}`, 14, 68);
-    doc.text(`Global Savings: Rs. ${overviewData.globalSavings}`, 14, 76);
+    doc.text(`Savings: Rs. ${overviewData.globalSavings}`, 14, 76);
     
     doc.text(`Available Limit: Rs. ${overviewData.availableLimit}`, pageWidth / 2 + 10, 60);
     doc.text(`They Owe Me (+): Rs. ${activeLent}`, pageWidth / 2 + 10, 68);
@@ -455,7 +455,7 @@ export default function Vault() {
           <h3 className="text-lg text-slate-400 font-bold mb-1">Expenses</h3><p className="text-4xl font-extrabold text-red-400 mb-1">₹{overviewData.totalExpenses}</p>
         </motion.div>
         <motion.div onClick={() => setCurrentView('savings')} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="cursor-pointer bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-bl-xl rounded-tr-2xl -rotate-1 shadow-lg flex flex-col justify-center">
-          <h3 className="text-lg text-slate-400 font-bold mb-1">Global Savings</h3><p className="text-4xl font-extrabold text-blue-400 mb-1">₹{overviewData.globalSavings}</p>
+          <h3 className="text-lg text-slate-400 font-bold mb-1">Savings</h3><p className="text-4xl font-extrabold text-blue-400 mb-1">₹{overviewData.globalSavings}</p>
         </motion.div>
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-br-xl rounded-tl-2xl rotate-1 shadow-lg flex flex-col justify-center relative">
           <div className="flex justify-between items-start mb-1"><h3 className="text-lg text-slate-400 font-bold">Available</h3><button onClick={() => setActiveModal('budget')} className="p-1 hover:text-yellow-400 bg-slate-800 rounded-md border border-slate-600"><Edit2 size={16} className="text-slate-300" /></button></div>
@@ -572,7 +572,7 @@ export default function Vault() {
   const renderSavings = () => (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="h-full flex flex-col">
       <div className="flex flex-col items-center bg-slate-900/80 border-4 border-dashed border-yellow-500/60 p-6 rounded-2xl mb-6 shadow-[0_0_20px_rgba(234,179,8,0.1)]">
-        <Lock size={48} className="text-yellow-400 mb-2 drop-shadow-md" /><p className="text-xl font-bold text-slate-400 tracking-widest uppercase">Total Vault Cache</p><p className="text-6xl font-black text-yellow-400 mt-2">₹{overviewData.globalSavings}</p>
+        <Lock size={48} className="text-yellow-400 mb-2 drop-shadow-md" /><p className="text-xl font-bold text-slate-400 tracking-widest uppercase">Total Treasure</p><p className="text-6xl font-black text-yellow-400 mt-2">₹{overviewData.globalSavings}</p>
       </div>
       <div className="flex w-full pb-2 border-b-2 border-slate-700 mb-4 text-slate-400 font-bold text-lg"><div className="w-[22%] text-center">Date</div><div className="flex-1 px-4">Log</div><div className="w-[30%] text-right pr-2">Impact</div></div>
       <div className="space-y-4 overflow-y-auto max-h-[40vh] pb-24 pr-1 hide-scrollbar">
