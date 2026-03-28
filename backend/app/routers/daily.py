@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
+import base64
 
 import httpx
 from bs4 import BeautifulSoup
@@ -58,6 +59,10 @@ class BunkTrackOut(BaseModel):
     class Config:
         from_attributes = True
 
+class BunkManualUpdate(BaseModel):
+    attended: int
+    bunked: int
+
 # ==========================================
 # TIMETABLE SYNC ROUTES
 # ==========================================
@@ -90,19 +95,19 @@ async def sync_timetable(
     
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        # DEFENSIVE PROMPT
         prompt = """
-        You are an expert data extractor. Convert this college timetable image into a strict JSON format. 
-        The JSON MUST be a list of objects, where each object represents a day of the week (Monday to Friday).
+        STEP 1: Verify if this image is a college class timetable. 
+        If it is NOT a timetable (e.g., it's a person, a meme, or random text), return exactly: {"error": "not_a_timetable"}
         
-        Each day must have a 'day' string, and a 'classes' array.
-        Each class inside the array must have:
-        - "name": The subject name (abbreviations are fine).
-        - "faculty": The teacher's name (if missing, put "TBA").
-        - "time": The time slot (e.g., "08:50 AM - 10:30 AM").
-        - "venue": The room/lab number.
-        - "type": Classify as exactly "Lecture", "Lab", or "Tutorial" based on context.
+        STEP 2: If it IS a timetable, extract the schedule into a strict JSON format for exactly 5 days (Monday-Friday).
+        Badge colors: Green=Lecture, Orange/Yellow=Lab, Purple/Blue=Tutorial.
         
-        Return ONLY valid JSON. No markdown backticks.
+        Format:
+        [ {"day": "Monday", "classes": [...]}, ... ]
+        
+        Return ONLY valid JSON.
         """
         
         response = model.generate_content([
@@ -110,25 +115,47 @@ async def sync_timetable(
             prompt
         ])
         
-        # FIXED: Clean the response to ensure pure JSON
-        raw_text = response.text.strip()
-        if raw_text.startswith('```json'):
-            raw_text = raw_text[7:]
-        if raw_text.endswith('```'):
-            raw_text = raw_text[:-3]
+        raw_text = response.text.strip().replace('```json', '').replace('```', '')
+        structured_data = json.loads(raw_text)
+        
+        if isinstance(structured_data, list):
+            for day in structured_data:
+                for c in day.get('classes', []):
+                    # If Gemini invented 'start_time', merge it into 'time'
+                    if 'start_time' in c:
+                        c['time'] = f"{c['start_time']} - {c.get('end_time', '')}".strip(" -")
+                    
+                    # Ensure 'type' is exactly what the frontend expects
+                    if c.get('type') == 'Practical':
+                        c['type'] = 'Lab'
+
+        # --- SANITY CHECK ---
+        if isinstance(structured_data, dict) and structured_data.get("error") == "not_a_timetable":
+            raise HTTPException(status_code=400, detail="Nice try, but that's not a timetable. Upload the real deal!")
+        
+        
+        # Double Check: Did it actually find any classes?
+        all_classes = [c for day in structured_data for c in day.get('classes', [])]
+        if len(all_classes) < 3: # A real batch has way more than 3 classes a week
+            raise HTTPException(status_code=400, detail="This timetable looks empty or invalid.")
+        
+        # If we passed the bouncer, save to cache
+        existing_cache = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
+        if existing_cache:
+            existing_cache.schedule_data = structured_data
+        else:
+            db.add(models.TimetableCache(batch=batch, schedule_data=structured_data))
             
-        structured_data = json.loads(raw_text.strip())
-        
-        # Save it to the Vault so the rest of the batch gets it instantly!
-        new_cache = models.TimetableCache(batch=batch, schedule_data=structured_data)
-        db.add(new_cache)
         db.commit()
-        
         return structured_data
         
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="The AI got confused by that image. Try a clearer screenshot.")
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        print(f"Gemini parsing failed: {e}")
-        raise HTTPException(status_code=500, detail="AI failed to parse the timetable image.")
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail="Bouncer malfunction. Try again later.")    
 
 
 # ==========================================
@@ -185,6 +212,18 @@ def get_comms(
     return comms
 
 
+@router.delete("/comms/{comm_id}")
+def delete_broadcast(comm_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.email != "tejas1607.best@gmail.com":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only Admins can delete.")
+        
+    comm = db.query(models.Broadcast).filter(models.Broadcast.id == comm_id).first()
+    if comm:
+        db.delete(comm)
+        db.commit()
+    return {"status": "deleted"}
+
+
 # ==========================================
 # BUNK METER ROUTES
 # ==========================================
@@ -226,6 +265,23 @@ def update_bunk_stat(track_id: int, action_data: BunkAction, db: Session = Depen
     db.refresh(tracker)
     return tracker
 
+@router.put("/bunk/{track_id}/manual")
+def update_bunk_manual(
+    track_id: int, 
+    data: BunkManualUpdate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    tracker = db.query(models.BunkTrack).filter(models.BunkTrack.id == track_id, models.BunkTrack.user_id == current_user.id).first()
+    if not tracker:
+        raise HTTPException(status_code=404, detail="Tracker not found")
+        
+    tracker.attended = data.attended
+    tracker.bunked = data.bunked
+    db.commit()
+    db.refresh(tracker)
+    return tracker
+
 @router.delete("/bunk/{track_id}")
 def delete_bunk_subject(track_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tracker = db.query(models.BunkTrack).filter(models.BunkTrack.id == track_id, models.BunkTrack.user_id == current_user.id).first()
@@ -238,8 +294,6 @@ def delete_bunk_subject(track_id: int, db: Session = Depends(get_db), current_us
 # ==========================================
 # MESS MENU ROUTES
 # ==========================================
-UPLOAD_DIR = Path("uploads/menus")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.get("/mess-menu")
 def get_mess_menu(hostel: str, db: Session = Depends(get_db)):
@@ -254,33 +308,35 @@ def get_mess_menu(hostel: str, db: Session = Depends(get_db)):
     }
 
 @router.post("/mess-menu")
-def upload_mess_menu(
+async def upload_mess_menu(
     hostel: str = Form(...), 
     image: UploadFile = File(...), 
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
-    file_extension = image.filename.split(".")[-1]
-    file_name = f"{hostel.replace(' ', '_')}_{datetime.utcnow().timestamp()}.{file_extension}"
-    file_path = UPLOAD_DIR / file_name
-    
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(image.file, buffer)
+    try:
+        # FAST & EASY FIX: Convert the image to a Base64 string
+        img_data = await image.read()
+        base64_encoded = base64.b64encode(img_data).decode("utf-8")
         
-    image_url = f"/uploads/menus/{file_name}"
+        # Create a Data URI that React can use directly in the <img src="..." />
+        mime_type = image.content_type
+        image_url = f"data:{mime_type};base64,{base64_encoded}"
 
-    menu = db.query(models.MessMenu).filter(models.MessMenu.hostel == hostel).first()
-    if menu:
-        menu.image_url = image_url
-        menu.uploader_id = current_user.id
-    else:
-        menu = models.MessMenu(hostel=hostel, image_url=image_url, uploader_id=current_user.id)
-        db.add(menu)
-        
-    db.commit()
-    db.refresh(menu)
-    
-    return {
-        "image_url": menu.image_url,
-        "uploader_name": current_user.name
-    }
+        # Save this giant string directly into the database!
+        menu = db.query(models.MessMenu).filter(models.MessMenu.hostel == hostel).first()
+        if menu:
+            menu.image_url = image_url
+            menu.uploader_id = current_user.id
+        else:
+            menu = models.MessMenu(hostel=hostel, image_url=image_url, uploader_id=current_user.id)
+            db.add(menu)
+            
+        db.commit()
+        return {
+            "image_url": image_url,
+            "uploader_name": current_user.name
+        }
+    except Exception as e:
+        print(f"Upload error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process image.")

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, MapPin, Camera, Radio, FolderOpen, X, Search, Plus, CheckCircle2, XCircle, Slash, ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, Loader2, AlertTriangle, CalendarDays, Target, UploadCloud, Flag } from 'lucide-react';
+import { Clock, MapPin, Camera, Radio, FolderOpen, X, Search, Plus, CheckCircle2, XCircle, Slash, ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, Loader2, AlertTriangle, CalendarDays, Target, UploadCloud, Flag, Edit2 } from 'lucide-react';
 
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
@@ -9,6 +9,8 @@ interface ClassSession {
   id: number;
   name: string;
   time: string;
+  start_time?: string;
+  end_time?: string;
   venue: string;
   type: 'Lecture' | 'Lab' | 'Tutorial' | string;
   status: 'past' | 'active' | 'future';
@@ -46,11 +48,13 @@ export default function Daily() {
   const [todayClasses, setTodayClasses] = useState<ClassSession[]>([]);
   const [bunkMeter, setBunkMeter] = useState<any[]>([]);
   const [showAddSubject, setShowAddSubject] = useState(false);
+  const [editingBunk, setEditingBunk] = useState<{id: number, subject: string, attended: number, bunked: number} | null>(null); // NEW: Manual Bunk Entry
+  
   const [commsRadar, setCommsRadar] = useState<any[]>([]);
   const [newComm, setNewComm] = useState({ tag: '', text: '', urgent: false, targetType: 'ALL', targetValue: '' });
 
   // ==========================================
-  // DATA FETCHING & SYNC LOGIC
+  // DATA FETCHING
   // ==========================================
   const fetchDailyData = async () => {
     try {
@@ -63,13 +67,11 @@ export default function Daily() {
         stream: profileRes.data.stream || 'COE'
       });
 
-      // 1. Fetch Timetable
       try {
         const timeRes = await axios.get(`${API_HOST}/daily/timetable?token=${token}`);
         setWeekSchedule(timeRes.data);
         setNeedsSync(false);
         
-        // Filter for Today's Classes
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const currentDay = days[new Date().getDay()];
         const todayData = timeRes.data.find((d: any) => d.day === currentDay);
@@ -78,7 +80,7 @@ export default function Daily() {
           const mappedClasses = todayData.classes.map((c: any, i: number) => ({
             ...c,
             id: i + 1,
-            status: 'future', // TODO: Add real time-checking logic here later
+            status: 'future',
             attendance: null
           }));
           setTodayClasses(mappedClasses);
@@ -86,12 +88,9 @@ export default function Daily() {
           setTodayClasses([]); 
         }
       } catch (err: any) {
-        if (err.response?.status === 404) {
-          setNeedsSync(true);
-        }
+        if (err.response?.status === 404) setNeedsSync(true);
       }
 
-      // 2. Fetch Comms & Bunk Data
       const [commsRes, bunkRes] = await Promise.all([
         axios.get(`${API_HOST}/daily/comms?token=${token}`),
         axios.get(`${API_HOST}/daily/bunk?token=${token}`)
@@ -99,20 +98,22 @@ export default function Daily() {
       setCommsRadar(commsRes.data);
       setBunkMeter(bunkRes.data);
 
-      // 3. Fetch Mess Menu
       if (userHostel !== 'Day Scholar') {
         try {
           const menuRes = await axios.get(`${API_HOST}/daily/mess-menu?hostel=${encodeURIComponent(userHostel)}&token=${token}`);
           if (menuRes.data && menuRes.data.image_url) {
+            // Check if it's a Base64 string or an old local path
+            const rawUrl = menuRes.data.image_url;
+            const finalUrl = rawUrl.startsWith('data:') ? rawUrl : `${API_HOST}${rawUrl}`;
+            
             setMessMenuData({
-              url: `${API_HOST}${menuRes.data.image_url}`,
+              url: finalUrl,
               uploader: menuRes.data.uploader_name,
               time: new Date(menuRes.data.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
             });
           }
-        } catch (e) { /* 404 is fine */ }
+        } catch (e) { }
       }
-
     } catch (error) {
       console.error("Failed to fetch daily data:", error);
     } finally {
@@ -124,6 +125,9 @@ export default function Daily() {
     if (token) fetchDailyData();
   }, [token]);
 
+  // ==========================================
+  // ACTIONS & API CALLS
+  // ==========================================
   const handleSyncUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -134,7 +138,7 @@ export default function Daily() {
 
     try {
       await axios.post(`${API_HOST}/daily/timetable/sync?token=${token}`, formData);
-      fetchDailyData(); // Refresh to load the newly parsed JSON
+      fetchDailyData();
     } catch (error) {
       alert("AI Sync failed. Please make sure you uploaded a clear PNG of the timetable.");
     } finally {
@@ -143,22 +147,17 @@ export default function Daily() {
     }
   };
 
-  // ==========================================
-  // ACTIONS & API CALLS
-  // ==========================================
   const handleMenuUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     setIsUploadingMenu(true);
     const formData = new FormData();
     formData.append('image', file);
     formData.append('hostel', userData.hostel);
-
     try {
       const res = await axios.post(`${API_HOST}/daily/mess-menu?token=${token}`, formData);
       setMessMenuData({
-        url: `${API_HOST}${res.data.image_url}`,
+        url: res.data.image_url, 
         uploader: res.data.uploader_name,
         time: 'Just now'
       });
@@ -171,6 +170,7 @@ export default function Daily() {
     }
   };
 
+  // --- BUNK METER LOGIC ---
   const handleMarkAttendance = async (classId: number, subjectName: string, status: 'attended' | 'bunked' | 'cancelled' | null) => {
     setTodayClasses(classes => classes.map(c => c.id === classId ? { ...c, attendance: status } : c));
     const tracker = bunkMeter.find(b => b.subject === subjectName);
@@ -201,6 +201,22 @@ export default function Daily() {
     } catch (error) { console.error("Failed to remove bunk subject", error); }
   };
 
+  // NEW: Manual Override Save
+  const saveManualBunkData = async () => {
+    if (!editingBunk) return;
+    try {
+      await axios.put(`${API_HOST}/daily/bunk/${editingBunk.id}/manual?token=${token}`, {
+        attended: editingBunk.attended,
+        bunked: editingBunk.bunked
+      });
+      setEditingBunk(null);
+      fetchDailyData();
+    } catch (error) {
+      alert("Failed to update past data.");
+    }
+  };
+
+  // --- COMMS RADAR LOGIC ---
   const handleBroadcast = async () => {
     if (!newComm.tag || !newComm.text) return alert("Tag and Text are required!");
     if (newComm.targetType !== 'ALL' && !newComm.targetValue) return alert("Please specify the target value.");
@@ -219,10 +235,22 @@ export default function Daily() {
     } catch (error: any) { alert(error.response?.data?.detail || "Broadcast failed"); }
   };
 
+  // NEW: Delete Comms
+  const handleDeleteComm = async (commId: number) => {
+    if (!confirm("Delete this broadcast from the radar?")) return;
+    try {
+      await axios.delete(`${API_HOST}/daily/comms/${commId}?token=${token}`);
+      fetchDailyData();
+    } catch (error) {
+      alert("Failed to delete comm.");
+    }
+  };
+
   const getTypeColor = (type: string) => {
-    if (type === 'Lecture') return 'bg-green-500 text-white border-green-600';
-    if (type === 'Lab') return 'bg-yellow-400 text-slate-900 border-yellow-500';
-    if (type === 'Tutorial') return 'bg-purple-500 text-white border-purple-600';
+    const t = type.toLowerCase();
+    if (t === 'lecture') return 'bg-green-500 text-white border-green-600';
+    if (t === 'lab' || t === 'practical') return 'bg-yellow-400 text-slate-900 border-yellow-500';
+    if (t === 'tutorial') return 'bg-purple-500 text-white border-purple-600';
     return 'bg-slate-500 text-white border-slate-600';
   };
 
@@ -260,12 +288,9 @@ export default function Daily() {
           <p className="text-sm font-bold text-slate-500 font-sans mb-4 max-w-[250px]">
             Be the hero for batch <span className="text-blue-400">{userData.batch}</span>. Upload the ACM timetable PNG to unlock the schedule for everyone.
           </p>
-          
           <input type="file" accept="image/*" ref={syncInputRef} className="hidden" onChange={handleSyncUpload} />
-          
           <button 
-            onClick={() => syncInputRef.current?.click()}
-            disabled={isSyncing}
+            onClick={() => syncInputRef.current?.click()} disabled={isSyncing}
             className="py-3 px-6 font-black bg-blue-600 text-white border-2 border-blue-500 rounded-lg flex items-center gap-2 hover:bg-blue-500 transition-colors uppercase tracking-widest disabled:opacity-50"
           >
             {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <UploadCloud size={18} />}
@@ -306,8 +331,8 @@ export default function Daily() {
                   <h3 className={`text-xl font-black mb-2 truncate ${isActive ? 'text-slate-100' : isPast ? 'text-slate-400' : 'text-slate-300'}`}>{cls.name}</h3>
                   <div className="flex items-center justify-between mt-2">
                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 font-sans">
-                       <Clock size={12} /> {cls.time.split('-')[0]?.trim()}
-                     </div>
+                        <Clock size={12} /> {(cls.time || cls.start_time || "").split('-')[0]?.trim() || "TBA"}
+                      </div>
                      <div className={`flex items-center gap-1.5 font-black text-sm ${isActive ? 'text-blue-400' : 'text-slate-400'}`}>
                        <MapPin size={14} /> {cls.venue}
                      </div>
@@ -387,8 +412,8 @@ export default function Daily() {
 
         {showAddSubject && (
           <div className="absolute top-10 right-2 left-2 bg-slate-800 border border-slate-600 rounded-md shadow-xl z-20 overflow-hidden font-sans">
-            {/* Map over the entire week's schedule to find unique subjects */}
-            {Array.from(new Set(weekSchedule.flatMap(day => day.classes.map((c: any) => c.name))))
+            {(Array.isArray(weekSchedule) ? weekSchedule : []).flatMap(day => (day.classes || []).map((c: any) => c.name))
+              .filter((name, index, self) => name && self.indexOf(name) === index) // Safely get unique names
               .filter(name => !bunkMeter.some(b => b.subject === name))
               .map((name: any, idx) => (
                 <div key={idx} onClick={() => addBunkSubject(name)} className="p-2 text-xs font-bold text-slate-300 hover:bg-slate-700 cursor-pointer border-b border-slate-700/50 last:border-0 truncate">
@@ -422,7 +447,12 @@ export default function Daily() {
                 <div key={sub.id} className="w-full group">
                   <div className="flex justify-between items-end mb-1 relative">
                     <span className="text-xs font-bold text-slate-300 truncate max-w-[70px] group-hover:opacity-0 transition-opacity">{sub.subject}</span>
-                    <button onClick={() => removeBunkSubject(sub.id)} className="absolute left-0 top-0 opacity-0 group-hover:opacity-100 text-red-500 transition-opacity"><Trash2 size={12}/></button>
+                    
+                    {/* Hover Actions: Edit & Delete */}
+                    <div className="absolute left-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                      <button onClick={() => setEditingBunk(sub)} className="text-blue-400 hover:text-blue-300"><Edit2 size={12}/></button>
+                      <button onClick={() => removeBunkSubject(sub.id)} className="text-red-500 hover:text-red-400"><Trash2 size={12}/></button>
+                    </div>
                     
                     <span className={`text-[10px] font-black ${isDanger ? 'text-red-400' : 'text-green-400'}`}>
                       {totalClasses === 0 ? 'No Data' : isDanger ? `Need ${neededClasses} more` : `${safeBunks} safe`}
@@ -474,9 +504,17 @@ export default function Daily() {
               return (
                 <div key={msg.id} className={`p-4 ${idx !== commsRadar.length - 1 ? 'border-b border-slate-800/50' : ''}`}>
                   <div className="flex justify-between items-center mb-1.5">
-                    <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-sm ${msg.urgent ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                      #{msg.tag}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-sm ${msg.urgent ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                        #{msg.tag}
+                      </span>
+                      {/* NEW: Admin Delete Button */}
+                      {isAdmin && (
+                        <button onClick={() => handleDeleteComm(msg.id)} className="text-red-500 hover:text-red-400 transition-colors">
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
                     <span className="text-xs font-bold text-slate-500 font-sans">{timeString}</span>
                   </div>
                   <p className="text-sm text-slate-300 font-sans leading-relaxed">{msg.text}</p>
@@ -511,6 +549,48 @@ export default function Daily() {
       {/* ========================================== */}
       {/* MODALS */}
       {/* ========================================== */}
+
+      {/* NEW: BUNK MANUAL EDIT MODAL */}
+      <AnimatePresence>
+        {editingBunk && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="bg-slate-900 border-2 border-slate-700 rounded-2xl p-6 w-full max-w-xs shadow-2xl">
+              <h3 className="text-lg font-black text-slate-200 mb-4 tracking-widest uppercase">Set Past Data</h3>
+              <p className="text-xs text-slate-400 mb-4 font-sans font-bold">{editingBunk.subject}</p>
+              
+              <div className="flex gap-4 mb-6">
+                <div className="flex-1">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block text-green-400">Attended</label>
+                  <input 
+                    type="number" 
+                    value={editingBunk.attended} 
+                    onChange={e => setEditingBunk({...editingBunk, attended: parseInt(e.target.value) || 0})} 
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white font-bold text-center focus:border-green-500 focus:outline-none" 
+                    min="0" 
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block text-red-400">Bunked</label>
+                  <input 
+                    type="number" 
+                    value={editingBunk.bunked} 
+                    onChange={e => setEditingBunk({...editingBunk, bunked: parseInt(e.target.value) || 0})} 
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-white font-bold text-center focus:border-red-500 focus:outline-none" 
+                    min="0" 
+                  />
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <button onClick={() => setEditingBunk(null)} className="flex-1 py-2.5 bg-slate-800 text-slate-400 font-black tracking-wider rounded-lg border border-slate-700 hover:bg-slate-700 transition-colors uppercase text-xs">Cancel</button>
+                <button onClick={saveManualBunkData} className="flex-1 py-2.5 bg-blue-600 text-white font-black tracking-wider rounded-lg hover:bg-blue-500 transition-colors uppercase text-xs">Save</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* KEEP EXISTING MODALS (Menu Viewer, Week Schedule, Archives, Comms Add) */}
       <AnimatePresence>
         {showMenuViewer && messMenuData && (
           <>
@@ -561,15 +641,32 @@ export default function Daily() {
                   <div key={idx} className="bg-slate-900 border-2 border-slate-800 rounded-xl p-3">
                     <h3 className="text-lg font-black text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-800 pb-1">{dayData.day}</h3>
                     <div className="space-y-2">
-                      {dayData.classes.map((c: any, i: number) => (
-                         <div key={i} className="text-sm font-bold text-slate-400 font-sans flex items-center gap-2">
-                           <div className="w-1.5 h-1.5 rounded-full bg-blue-500" /> {c.name} <span className="text-slate-500">({c.time.split('-')[0]?.trim()})</span>
+                      {(dayData.classes || []).map((c: any, i: number) => (
+                         <div key={i} className="text-sm font-bold text-slate-400 font-sans flex items-center justify-between gap-2 min-w-0">
+                           <div className="flex items-center gap-2 min-w-0">
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${c.type === 'Lecture' ? 'bg-green-500' : (c.type === 'Lab' || c.type === 'Practical') ? 'bg-yellow-400' : 'bg-purple-500'}`} />                             <span className="truncate">{c.name}</span>
+                           </div>
+                           <span className="text-slate-500 text-xs whitespace-nowrap shrink-0">
+                              ({(c.time || c.start_time || "").split('-')[0]?.trim() || "TBA"})
+                            </span>
                          </div>
                       ))}
                       {dayData.classes.length === 0 && <div className="text-xs text-slate-500 italic">No classes</div>}
                     </div>
                   </div>
                 ))}
+              </div>
+
+              <div className="p-4 border-t-2 border-slate-800 bg-slate-900">
+                <input type="file" accept="image/*" ref={syncInputRef} className="hidden" onChange={handleSyncUpload} />
+                <button 
+                  onClick={() => syncInputRef.current?.click()}
+                  disabled={isSyncing}
+                  className="w-full py-3 font-black bg-slate-800 text-blue-400 border-2 border-slate-700 border-dashed rounded-xl flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors uppercase tracking-widest disabled:opacity-50"
+                >
+                  {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <RotateCcw size={18} />}
+                  {isSyncing ? 'Re-Syncing...' : 'Fix Errors (Re-upload)'}
+                </button>
               </div>
             </motion.div>
           </>
