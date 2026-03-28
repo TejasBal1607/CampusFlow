@@ -11,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from google import genai
 from google.genai import types
 
-import app.models as models
+from app import models
 from app.database import get_db
 from app.utils import get_today_ist
 from enum import Enum
@@ -113,7 +113,7 @@ def create_expense(payload: ExpenseCreate, db: Session = Depends(get_db)):
     db.refresh(expense)
 
     if payload.split_with:
-        from models import CreditLedger 
+        from app.models import CreditLedger 
         total_people = len(payload.split_with) + 1
         split_amount = round(payload.amount / total_people, 2)
         for friend_id in payload.split_with:

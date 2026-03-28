@@ -109,7 +109,7 @@ export default function Auth({ onLoginSuccess }: { onLoginSuccess: (token: strin
               Campus<span className="text-blue-500">FLOW</span>
             </h1>
             <p className="text-xs text-slate-400 font-sans font-bold tracking-widest uppercase mt-2 border-b border-slate-700/50 pb-2 w-full">
-              Thapar Identification
+              Your College Survival Companion
             </p>
           </div>
 

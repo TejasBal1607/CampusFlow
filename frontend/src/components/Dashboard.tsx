@@ -114,7 +114,7 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
 
   return (
     <div 
-      className="max-w-md mx-auto w-full h-[100dvh] relative overflow-hidden shadow-2xl border-x border-slate-700 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:24px_24px] bg-slate-900 flex flex-col"
+      className="max-w-md mx-auto w-full min-h-[100dvh] relative overflow-x-hidden shadow-2xl border-x border-slate-700 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:24px_24px] bg-slate-900 flex flex-col"
     >
       
       {/* --- THE MEAT: Scrollable Main Content --- */}
