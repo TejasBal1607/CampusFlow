@@ -32,7 +32,7 @@ const generateThaparBatches = () => {
 };
 
 const THAPAR_BATCHES = generateThaparBatches();
-const THAPAR_STREAMS = ['COE', 'COBS', 'COSE', 'ENC', 'EEC', 'ECE', 'MEE', 'CIE', 'CHE', 'BME', 'BT'];
+const THAPAR_STREAMS = ['COE', 'COBS', 'COPC', 'ENC', 'EEC', 'ECE', 'MEE', 'CIE', 'CHE', 'BME', 'BT'];
 
 // --- NEW: SMART EMAIL PARSER ---
 const getJoiningYear = (email: string) => {

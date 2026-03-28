@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Date, Boolean, func
+from sqlalchemy import JSON, Column, DateTime, Integer, String, Float, ForeignKey, Date, Boolean, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from app.utils import get_today_ist
@@ -80,3 +80,55 @@ class CreditLedger(Base):
     date = Column(Date, default=get_today_ist())
     is_settled = Column(Boolean, default=False)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Track who created the entry
+
+from datetime import datetime
+
+# ... (Keep all your existing models like User, Expense, Ledger, etc.) ...
+
+class Broadcast(Base):
+    __tablename__ = "broadcasts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    tag = Column(String, index=True) # e.g., 'ADMIN', 'HOSTEL J', 'ACAD'
+    text = Column(String)
+    urgent = Column(Boolean, default=False)
+    
+    # Targeting rules (If ALL are null, it broadcasts to everyone)
+    target_batch = Column(String, nullable=True)
+    target_hostel = Column(String, nullable=True)
+    target_stream = Column(String, nullable=True)
+    target_year = Column(Integer, nullable=True)
+    
+    creator_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class BunkTrack(Base):
+    __tablename__ = "bunk_tracks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    subject = Column(String)
+    
+    # We track total occurrences and how many they attended
+    attended = Column(Integer, default=0)
+    bunked = Column(Integer, default=0)
+    cancelled = Column(Integer, default=0)
+
+class MessMenu(Base):
+    __tablename__ = "mess_menus"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    hostel = Column(String, unique=True, index=True) # Only one active menu per hostel
+    image_url = Column(String)
+    uploader_id = Column(Integer, ForeignKey("users.id"))
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    uploader = relationship("User")
+
+class TimetableCache(Base):
+    __tablename__ = "timetable_cache"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    batch = Column(String, unique=True, index=True) # e.g., '1A84'
+    schedule_data = Column(JSON) # Stores the structured dictionary from Gemini
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,67 +1,224 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, MapPin, Camera, Radio, FolderOpen, X, Search, Plus, CheckCircle2, XCircle, Slash, ChevronDown, ChevronRight, FileText, User, RotateCcw, Trash2 } from 'lucide-react';
+import { Clock, MapPin, Camera, Radio, FolderOpen, X, Search, Plus, CheckCircle2, XCircle, Slash, ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, Loader2, AlertTriangle, CalendarDays, Target, UploadCloud, Flag } from 'lucide-react';
 
-// ==========================================
-// 1. THE TYPE CONTRACT (Fixes the TS Error)
-// ==========================================
+const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
+
 interface ClassSession {
   id: number;
   name: string;
-  faculty: string;
   time: string;
   venue: string;
-  type: 'Lecture' | 'Lab' | 'Tutorial';
+  type: 'Lecture' | 'Lab' | 'Tutorial' | string;
   status: 'past' | 'active' | 'future';
   attendance: 'attended' | 'bunked' | 'cancelled' | null;
-  endsIn?: string; // The '?' makes it optional!
+  endsIn?: string;
 }
 
 export default function Daily() {
-  const [showArchives, setShowArchives] = useState(false);
-  const [showCameraMode, setShowCameraMode] = useState(false);
-  const [showAddComm, setShowAddComm] = useState(false);
+  const token = localStorage.getItem('cf_token');
   
-  // Mock Role-Based Access Control (Change to 'cr' or 'faculty' to see the POST button)
-  const userRole: 'student' | 'cr' | 'faculty' = 'student'; 
-  const userHostel = 'Hostel J';
-  const userBatch = '1A84';
+  const [isLoading, setIsLoading] = useState(true);
+  const [showArchives, setShowArchives] = useState(false);
+  const [showAddComm, setShowAddComm] = useState(false);
+  const [showWeekSchedule, setShowWeekSchedule] = useState(false);
+  
+  // Timetable Sync State
+  const [needsSync, setNeedsSync] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [weekSchedule, setWeekSchedule] = useState<any[]>([]);
+  const syncInputRef = useRef<HTMLInputElement>(null);
+  
+  // Mess Menu State
+  const [messMenuData, setMessMenuData] = useState<{url: string, uploader: string, time: string} | null>(null);
+  const [showMenuViewer, setShowMenuViewer] = useState(false);
+  const [isUploadingMenu, setIsUploadingMenu] = useState(false);
+  const menuFileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [userData, setUserData] = useState({ email: '', batch: '1A84', hostel: 'Day Scholar', stream: 'COE' });
+  const isAdmin = userData.email === 'tejas1607.best@gmail.com';
 
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
-    'streams': true,
-    'coe': true
-  });
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ 'streams': true, 'coe': true });
+  const toggleFolder = (folderId: string) => setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
 
-  const toggleFolder = (folderId: string) => {
-    setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
+  // Live Data State
+  const [todayClasses, setTodayClasses] = useState<ClassSession[]>([]);
+  const [bunkMeter, setBunkMeter] = useState<any[]>([]);
+  const [showAddSubject, setShowAddSubject] = useState(false);
+  const [commsRadar, setCommsRadar] = useState<any[]>([]);
+  const [newComm, setNewComm] = useState({ tag: '', text: '', urgent: false, targetType: 'ALL', targetValue: '' });
+
+  // ==========================================
+  // DATA FETCHING & SYNC LOGIC
+  // ==========================================
+  const fetchDailyData = async () => {
+    try {
+      const profileRes = await axios.get(`${API_HOST}/auth/me?token=${token}`);
+      const userHostel = profileRes.data.hostel || 'Day Scholar';
+      setUserData({
+        email: profileRes.data.email,
+        batch: profileRes.data.batch || '1A84',
+        hostel: userHostel,
+        stream: profileRes.data.stream || 'COE'
+      });
+
+      // 1. Fetch Timetable
+      try {
+        const timeRes = await axios.get(`${API_HOST}/daily/timetable?token=${token}`);
+        setWeekSchedule(timeRes.data);
+        setNeedsSync(false);
+        
+        // Filter for Today's Classes
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const currentDay = days[new Date().getDay()];
+        const todayData = timeRes.data.find((d: any) => d.day === currentDay);
+        
+        if (todayData && todayData.classes) {
+          const mappedClasses = todayData.classes.map((c: any, i: number) => ({
+            ...c,
+            id: i + 1,
+            status: 'future', // TODO: Add real time-checking logic here later
+            attendance: null
+          }));
+          setTodayClasses(mappedClasses);
+        } else {
+          setTodayClasses([]); 
+        }
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          setNeedsSync(true);
+        }
+      }
+
+      // 2. Fetch Comms & Bunk Data
+      const [commsRes, bunkRes] = await Promise.all([
+        axios.get(`${API_HOST}/daily/comms?token=${token}`),
+        axios.get(`${API_HOST}/daily/bunk?token=${token}`)
+      ]);
+      setCommsRadar(commsRes.data);
+      setBunkMeter(bunkRes.data);
+
+      // 3. Fetch Mess Menu
+      if (userHostel !== 'Day Scholar') {
+        try {
+          const menuRes = await axios.get(`${API_HOST}/daily/mess-menu?hostel=${encodeURIComponent(userHostel)}&token=${token}`);
+          if (menuRes.data && menuRes.data.image_url) {
+            setMessMenuData({
+              url: `${API_HOST}${menuRes.data.image_url}`,
+              uploader: menuRes.data.uploader_name,
+              time: new Date(menuRes.data.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            });
+          }
+        } catch (e) { /* 404 is fine */ }
+      }
+
+    } catch (error) {
+      console.error("Failed to fetch daily data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (token) fetchDailyData();
+  }, [token]);
+
+  const handleSyncUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsSyncing(true);
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      await axios.post(`${API_HOST}/daily/timetable/sync?token=${token}`, formData);
+      fetchDailyData(); // Refresh to load the newly parsed JSON
+    } catch (error) {
+      alert("AI Sync failed. Please make sure you uploaded a clear PNG of the timetable.");
+    } finally {
+      setIsSyncing(false);
+      if (syncInputRef.current) syncInputRef.current.value = '';
+    }
   };
 
   // ==========================================
-  // STATE DATA
+  // ACTIONS & API CALLS
   // ==========================================
-  const [todayClasses, setTodayClasses] = useState<ClassSession[]>([
-    { id: 1, name: 'Data Structures', faculty: 'Dr. Neeraj', time: '08:50 AM - 10:30 AM', venue: 'LP-104', type: 'Lecture', status: 'past', attendance: 'attended' },
-    { id: 2, name: 'Comp. Architecture', faculty: 'Dr. Sharma', time: '10:30 AM - 11:20 AM', venue: 'LP-102', type: 'Tutorial', status: 'past', attendance: 'bunked' },
-    { id: 3, name: 'Physics Labs', faculty: 'Mr. Verma', time: '01:00 PM - 03:30 PM', venue: 'L-Block', type: 'Lab', status: 'active', endsIn: '14m', attendance: null },
-    { id: 4, name: 'Math III', faculty: 'Dr. Kaur', time: '03:30 PM - 04:20 PM', venue: 'LP-105', type: 'Lecture', status: 'future', attendance: null },
-  ]);
+  const handleMenuUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  // Custom Bunk Meter State
-  const [bunkMeter, setBunkMeter] = useState([
-    { id: 1, subject: 'Data Structures', attended: 28, total: 32, safe: 4 }, 
-    { id: 2, subject: 'Math III', attended: 22, total: 30, safe: 0 }, 
-  ]);
-  const [showAddSubject, setShowAddSubject] = useState(false);
+    setIsUploadingMenu(true);
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('hostel', userData.hostel);
 
-  const commsRadar = [
-    { id: 1, tag: 'ADMIN', text: 'Hostel fee payment portal is currently down for maintenance.', time: '1h ago', urgent: true },
-    { id: 2, tag: 'ACAD', text: 'Dr. Sharma cancelled the 4:30 PM extra class for batch 1A84.', time: '3h ago', urgent: false },
-    { id: 3, tag: 'HOSTEL J', text: 'Water supply in B-wing will be cut from 2 PM to 4 PM.', time: '5h ago', urgent: false },
-  ];
+    try {
+      const res = await axios.post(`${API_HOST}/daily/mess-menu?token=${token}`, formData);
+      setMessMenuData({
+        url: `${API_HOST}${res.data.image_url}`,
+        uploader: res.data.uploader_name,
+        time: 'Just now'
+      });
+      setShowMenuViewer(true);
+    } catch (error) {
+      alert("Failed to upload menu. Please try again.");
+    } finally {
+      setIsUploadingMenu(false);
+      if (menuFileInputRef.current) menuFileInputRef.current.value = '';
+    }
+  };
 
-  // ==========================================
-  // LOGIC HELPERS
-  // ==========================================
+  const handleMarkAttendance = async (classId: number, subjectName: string, status: 'attended' | 'bunked' | 'cancelled' | null) => {
+    setTodayClasses(classes => classes.map(c => c.id === classId ? { ...c, attendance: status } : c));
+    const tracker = bunkMeter.find(b => b.subject === subjectName);
+    if (tracker) {
+      try {
+        let actionStr = 'reset';
+        if (status === 'attended') actionStr = 'attend';
+        if (status === 'bunked') actionStr = 'bunk';
+        if (status === 'cancelled') actionStr = 'cancel';
+        await axios.put(`${API_HOST}/daily/bunk/${tracker.id}?token=${token}`, { action: actionStr });
+        fetchDailyData();
+      } catch (error) { console.error("Failed to sync attendance", error); }
+    }
+  };
+
+  const addBunkSubject = async (name: string) => {
+    setShowAddSubject(false);
+    try {
+      await axios.post(`${API_HOST}/daily/bunk?token=${token}`, { subject: name });
+      fetchDailyData();
+    } catch (error) { console.error("Failed to add bunk subject", error); }
+  };
+
+  const removeBunkSubject = async (id: number) => {
+    try {
+      await axios.delete(`${API_HOST}/daily/bunk/${id}?token=${token}`);
+      fetchDailyData();
+    } catch (error) { console.error("Failed to remove bunk subject", error); }
+  };
+
+  const handleBroadcast = async () => {
+    if (!newComm.tag || !newComm.text) return alert("Tag and Text are required!");
+    if (newComm.targetType !== 'ALL' && !newComm.targetValue) return alert("Please specify the target value.");
+
+    const payload: any = { tag: newComm.tag.toUpperCase(), text: newComm.text, urgent: newComm.urgent };
+    if (newComm.targetType === 'HOSTEL') payload.target_hostel = newComm.targetValue;
+    if (newComm.targetType === 'BATCH') payload.target_batch = newComm.targetValue;
+    if (newComm.targetType === 'STREAM') payload.target_stream = newComm.targetValue;
+    if (newComm.targetType === 'YEAR') payload.target_year = parseInt(newComm.targetValue);
+
+    try {
+      await axios.post(`${API_HOST}/daily/comms?token=${token}`, payload);
+      setShowAddComm(false);
+      setNewComm({ tag: '', text: '', urgent: false, targetType: 'ALL', targetValue: '' });
+      fetchDailyData();
+    } catch (error: any) { alert(error.response?.data?.detail || "Broadcast failed"); }
+  };
+
   const getTypeColor = (type: string) => {
     if (type === 'Lecture') return 'bg-green-500 text-white border-green-600';
     if (type === 'Lab') return 'bg-yellow-400 text-slate-900 border-yellow-500';
@@ -69,166 +226,211 @@ export default function Daily() {
     return 'bg-slate-500 text-white border-slate-600';
   };
 
-  const handleMarkAttendance = (id: number, status: 'attended' | 'bunked' | 'cancelled' | null) => {
-    setTodayClasses(classes => classes.map(c => c.id === id ? { ...c, attendance: status } : c));
-  };
-
-  const removeBunkSubject = (id: number) => {
-    setBunkMeter(prev => prev.filter(sub => sub.id !== id));
-  };
-
-  const addBunkSubject = (name: string) => {
-    setBunkMeter(prev => [...prev, { id: Date.now(), subject: name, attended: 0, total: 0, safe: 0 }]);
-    setShowAddSubject(false);
-  };
-
   // ==========================================
   // RENDER HELPERS
   // ==========================================
   const renderClassTracker = () => (
     <div className="mb-6 mt-4">
-      {/* COMPRESSED HEADER (Changes #1, #3, #4) */}
       <div className="flex items-center justify-between mb-4 border-b-2 border-slate-800 pb-2">
         <div className="flex items-baseline gap-2">
           <h2 className="text-2xl font-black uppercase tracking-wider text-slate-100 whitespace-nowrap">Class Tracker</h2>
-          <span className="text-xs font-black text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded-sm border border-slate-700">{userBatch}</span>
+          <span className="text-xs font-black text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded-sm border border-slate-700">{userData.batch}</span>
         </div>
-        <div className="text-right flex items-baseline gap-2">
-          <span className="text-xl font-black text-blue-400 font-caveat">{(new Date()).toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</span>
-          <span className="text-sm font-bold text-slate-400 font-caveat tracking-widest uppercase">{(new Date()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+        
+        <div 
+          onClick={() => !needsSync && setShowWeekSchedule(true)}
+          className={`text-right flex flex-col items-end justify-center transition-transform ${needsSync ? 'opacity-50' : 'cursor-pointer hover:scale-105'}`}
+          title={needsSync ? "Sync required to view week" : "View Full Week Schedule"}
+        >
+          <span className="text-2xl font-black text-blue-400 font-caveat leading-none">
+            {(new Date()).toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+          </span>
+          <span className="text-sm font-bold text-slate-400 font-caveat tracking-widest uppercase leading-none mt-1">
+            {(new Date()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
         </div>
       </div>
       
-      {/* Horizontal Scroll Container */}
-      <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-4 -mx-4 px-4 snap-x">
-        {todayClasses.map((cls) => {
-          const isActive = cls.status === 'active';
-          const isPast = cls.status === 'past';
+      {isLoading ? (
+        <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-600 size-10" /></div>
+      ) : needsSync ? (
+        <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center mt-2">
+          <FileText size={40} className="text-slate-600 mb-3" />
+          <h3 className="text-xl font-black text-slate-300 uppercase tracking-widest mb-2">Sync Required</h3>
+          <p className="text-sm font-bold text-slate-500 font-sans mb-4 max-w-[250px]">
+            Be the hero for batch <span className="text-blue-400">{userData.batch}</span>. Upload the ACM timetable PNG to unlock the schedule for everyone.
+          </p>
           
-          return (
-            <motion.div 
-              key={cls.id}
-              className={`min-w-[260px] snap-center p-4 rounded-xl border-2 flex flex-col justify-between shrink-0 relative overflow-hidden ${
-                isActive ? 'bg-slate-900/90 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 
-                isPast ? 'bg-slate-900/40 border-slate-800' : 
-                'bg-slate-900/80 border-slate-700'
-              }`}
-            >
-              <div className="flex justify-between items-start mb-3">
-                <span className={`text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-wider border-b-2 ${getTypeColor(cls.type)}`}>
-                  {cls.type}
-                </span>
-                {isActive && cls.endsIn && (
-                  <span className="text-[10px] font-black text-blue-400 animate-pulse flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-sm border border-blue-500/20">
-                    <Clock size={10} /> {cls.endsIn}
+          <input type="file" accept="image/*" ref={syncInputRef} className="hidden" onChange={handleSyncUpload} />
+          
+          <button 
+            onClick={() => syncInputRef.current?.click()}
+            disabled={isSyncing}
+            className="py-3 px-6 font-black bg-blue-600 text-white border-2 border-blue-500 rounded-lg flex items-center gap-2 hover:bg-blue-500 transition-colors uppercase tracking-widest disabled:opacity-50"
+          >
+            {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <UploadCloud size={18} />}
+            {isSyncing ? 'Extracting Data...' : 'Upload PNG'}
+          </button>
+        </div>
+      ) : todayClasses.length === 0 ? (
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-6 text-center text-slate-500 font-sans font-bold mt-2">
+          No classes scheduled for today! Enjoy the day off.
+        </div>
+      ) : (
+        <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-4 -mx-4 px-4 snap-x mt-2">
+          {todayClasses.map((cls) => {
+            const isActive = cls.status === 'active';
+            const isPast = cls.status === 'past';
+            
+            return (
+              <motion.div 
+                key={cls.id}
+                className={`min-w-[260px] snap-center p-4 rounded-xl border-2 flex flex-col justify-between shrink-0 relative overflow-hidden ${
+                  isActive ? 'bg-slate-900/90 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 
+                  isPast ? 'bg-slate-900/40 border-slate-800' : 
+                  'bg-slate-900/80 border-slate-700'
+                }`}
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-wider border-b-2 ${getTypeColor(cls.type)}`}>
+                    {cls.type}
                   </span>
-                )}
-              </div>
-              
-              <div className="mb-2">
-                <h3 className={`text-xl font-black mb-1 truncate ${isActive ? 'text-slate-100' : isPast ? 'text-slate-400' : 'text-slate-300'}`}>{cls.name}</h3>
-                <div className="flex items-center gap-2 text-sm font-bold text-slate-500 font-sans mb-1">
-                  <User size={14} /> <span className="truncate">{cls.faculty}</span>
-                </div>
-                <div className="flex items-center justify-between mt-2">
-                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 font-sans">
-                     <Clock size={12} /> {cls.time.split(' - ')[0]}
-                   </div>
-                   <div className={`flex items-center gap-1.5 font-black text-sm ${isActive ? 'text-blue-400' : 'text-slate-400'}`}>
-                     <MapPin size={14} /> {cls.venue}
-                   </div>
-                </div>
-              </div>
-
-              {/* ACTION BUTTONS & RESET (Change #2) */}
-              {(isPast || isActive) && (
-                <div className="mt-2 pt-3 border-t border-slate-800 flex gap-2">
-                  {cls.attendance ? (
-                    <button 
-                      onClick={() => handleMarkAttendance(cls.id, null)}
-                      className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-sm text-xs font-black uppercase tracking-wider hover:opacity-80 transition-opacity
-                      ${cls.attendance === 'attended' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 
-                        cls.attendance === 'bunked' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 
-                        'bg-slate-500/20 text-slate-400 border border-slate-500/30'}`}
-                      title="Click to reset status"
-                    >
-                      {cls.attendance === 'attended' && <CheckCircle2 size={14} />}
-                      {cls.attendance === 'bunked' && <XCircle size={14} />}
-                      {cls.attendance === 'cancelled' && <Slash size={14} />}
-                      {cls.attendance}
-                      <RotateCcw size={12} className="ml-1 opacity-50" />
-                    </button>
-                  ) : (
-                    <>
-                      <button onClick={() => handleMarkAttendance(cls.id, 'attended')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-green-500 hover:text-white transition-colors">ATTEND</button>
-                      <button onClick={() => handleMarkAttendance(cls.id, 'bunked')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-red-500 hover:text-white transition-colors">BUNK</button>
-                      <button onClick={() => handleMarkAttendance(cls.id, 'cancelled')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-slate-600 transition-colors">CANCEL</button>
-                    </>
+                  {isActive && cls.endsIn && (
+                    <span className="text-[10px] font-black text-blue-400 animate-pulse flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-sm border border-blue-500/20">
+                      <Clock size={10} /> {cls.endsIn}
+                    </span>
                   )}
                 </div>
-              )}
-            </motion.div>
-          );
-        })}
-      </div>
+                
+                <div className="mb-2">
+                  <h3 className={`text-xl font-black mb-2 truncate ${isActive ? 'text-slate-100' : isPast ? 'text-slate-400' : 'text-slate-300'}`}>{cls.name}</h3>
+                  <div className="flex items-center justify-between mt-2">
+                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 font-sans">
+                       <Clock size={12} /> {cls.time.split('-')[0]?.trim()}
+                     </div>
+                     <div className={`flex items-center gap-1.5 font-black text-sm ${isActive ? 'text-blue-400' : 'text-slate-400'}`}>
+                       <MapPin size={14} /> {cls.venue}
+                     </div>
+                  </div>
+                </div>
+
+                {(isPast || isActive) && (
+                  <div className="mt-2 pt-3 border-t border-slate-800 flex gap-2">
+                    {cls.attendance ? (
+                      <button 
+                        onClick={() => handleMarkAttendance(cls.id, cls.name, null)}
+                        className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-sm text-xs font-black uppercase tracking-wider hover:opacity-80 transition-opacity
+                        ${cls.attendance === 'attended' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 
+                          cls.attendance === 'bunked' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 
+                          'bg-slate-500/20 text-slate-400 border border-slate-500/30'}`}
+                      >
+                        {cls.attendance === 'attended' && <CheckCircle2 size={14} />}
+                        {cls.attendance === 'bunked' && <XCircle size={14} />}
+                        {cls.attendance === 'cancelled' && <Slash size={14} />}
+                        {cls.attendance}
+                        <RotateCcw size={12} className="ml-1 opacity-50" />
+                      </button>
+                    ) : (
+                      <>
+                        <button onClick={() => handleMarkAttendance(cls.id, cls.name, 'attended')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-green-500 hover:text-white transition-colors">ATTEND</button>
+                        <button onClick={() => handleMarkAttendance(cls.id, cls.name, 'bunked')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-red-500 hover:text-white transition-colors">BUNK</button>
+                        <button onClick={() => handleMarkAttendance(cls.id, cls.name, 'cancelled')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-slate-600 transition-colors">CANCEL</button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 
   const renderGrid = () => (
     <div className="grid grid-cols-2 gap-4 mb-6">
-      {/* Polaroid Mess Menu */}
       <motion.div 
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
-        onClick={() => setShowCameraMode(true)}
-        className="bg-slate-100 p-2 pb-6 rounded-sm shadow-xl -rotate-2 relative cursor-pointer flex flex-col min-h-[160px]"
+        className="bg-slate-100 p-2 pb-6 rounded-sm shadow-xl -rotate-2 relative flex flex-col h-[180px] group cursor-pointer"
+        onClick={() => messMenuData ? setShowMenuViewer(true) : menuFileInputRef.current?.click()}
       >
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-3 bg-red-500/50 rotate-3 shadow-sm" /> 
-        <div className="flex-1 bg-slate-900 w-full rounded-sm border border-slate-300 flex flex-col items-center justify-center gap-2 overflow-hidden relative">
-          <Camera size={28} className="text-slate-600 mb-1" />
-          <span className="text-xs font-black text-slate-400 uppercase tracking-widest text-center px-2">Snap<br/>Menu</span>
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-3 bg-red-500/50 rotate-3 shadow-sm z-10" /> 
+        
+        <div className="flex-1 bg-slate-900 w-full rounded-sm border border-slate-300 flex flex-col items-center justify-center overflow-hidden relative">
+          {isUploadingMenu ? (
+            <Loader2 size={28} className="text-blue-500 animate-spin" />
+          ) : messMenuData ? (
+            <>
+              <img src={messMenuData.url} alt="Mess Menu" className="w-full h-full object-cover opacity-80 group-hover:opacity-40 transition-opacity" />
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="text-white font-black text-xs uppercase tracking-widest bg-blue-600/90 px-3 py-1.5 rounded-full border border-blue-400">View Menu</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <Camera size={28} className="text-slate-600 mb-1" />
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest text-center px-2">Snap<br/>Menu</span>
+            </>
+          )}
         </div>
-        <p className="text-center font-caveat font-black text-xl text-slate-800 mt-2 leading-none">{userHostel}</p>
+        <p className="text-center font-caveat font-black text-xl text-slate-800 mt-2 leading-none">{userData.hostel}</p>
       </motion.div>
 
-      {/* Custom Bunk Meter (Change #3) */}
-      <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-3 flex flex-col relative">
+      <input type="file" accept="image/*" ref={menuFileInputRef} className="hidden" onChange={handleMenuUpload} />
+
+      <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-3 flex flex-col relative h-[180px]">
         <div className="flex items-center justify-between border-b-2 border-slate-800 pb-2 mb-3">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Bunk Meter</h3>
           <button onClick={() => setShowAddSubject(!showAddSubject)} className="text-slate-400 hover:text-blue-400"><Plus size={16}/></button>
         </div>
 
-        {/* Add Track Dropdown */}
         {showAddSubject && (
           <div className="absolute top-10 right-2 left-2 bg-slate-800 border border-slate-600 rounded-md shadow-xl z-20 overflow-hidden font-sans">
-            {todayClasses.filter(c => !bunkMeter.some(b => b.subject === c.name)).map(c => (
-              <div key={c.id} onClick={() => addBunkSubject(c.name)} className="p-2 text-xs font-bold text-slate-300 hover:bg-slate-700 cursor-pointer border-b border-slate-700/50 last:border-0">
-                + Track {c.name}
-              </div>
+            {/* Map over the entire week's schedule to find unique subjects */}
+            {Array.from(new Set(weekSchedule.flatMap(day => day.classes.map((c: any) => c.name))))
+              .filter(name => !bunkMeter.some(b => b.subject === name))
+              .map((name: any, idx) => (
+                <div key={idx} onClick={() => addBunkSubject(name)} className="p-2 text-xs font-bold text-slate-300 hover:bg-slate-700 cursor-pointer border-b border-slate-700/50 last:border-0 truncate">
+                  + Track {name}
+                </div>
             ))}
-            <div onClick={() => setShowAddSubject(false)} className="p-2 text-xs text-center text-slate-500 cursor-pointer bg-slate-900">Cancel</div>
+            {weekSchedule.length > 0 && Array.from(new Set(weekSchedule.flatMap(day => day.classes.map((c: any) => c.name)))).filter(name => !bunkMeter.some(b => b.subject === name)).length === 0 && (
+               <div className="p-2 text-xs text-center text-slate-400">All subjects tracked.</div>
+            )}
+            {weekSchedule.length === 0 && (
+               <div className="p-2 text-xs text-center text-slate-400">Sync timetable first.</div>
+            )}
+            <div onClick={() => setShowAddSubject(false)} className="p-2 text-xs text-center text-slate-500 cursor-pointer bg-slate-900 hover:bg-slate-800">Cancel</div>
           </div>
         )}
 
-        <div className="flex-1 flex flex-col justify-start gap-3 overflow-y-auto hide-scrollbar max-h-[120px]">
-          {bunkMeter.length === 0 ? (
-            <p className="text-xs text-slate-500 font-sans text-center mt-4">Click + to track subjects</p>
+        <div className="flex-1 flex flex-col justify-start gap-3 overflow-y-auto hide-scrollbar">
+          {isLoading ? (
+             <div className="flex justify-center py-4"><Loader2 className="animate-spin text-slate-600" /></div>
+          ) : bunkMeter.length === 0 ? (
+            <p className="text-xs text-slate-500 font-sans text-center mt-4 leading-tight">Sync timetable to track subjects.</p>
           ) : (
             bunkMeter.map((sub) => {
-              const isDanger = sub.safe <= 0;
-              const pct = sub.total === 0 ? 100 : Math.round((sub.attended / sub.total) * 100);
+              const totalClasses = sub.attended + sub.bunked;
+              const currentPct = totalClasses === 0 ? 100 : Math.round((sub.attended / totalClasses) * 100);
+              const isDanger = totalClasses > 0 && currentPct < 75;
+              const safeBunks = Math.max(0, Math.floor((4 / 3) * sub.attended - totalClasses));
+              const neededClasses = Math.max(0, Math.ceil(3 * totalClasses - 4 * sub.attended));
+
               return (
                 <div key={sub.id} className="w-full group">
                   <div className="flex justify-between items-end mb-1 relative">
                     <span className="text-xs font-bold text-slate-300 truncate max-w-[70px] group-hover:opacity-0 transition-opacity">{sub.subject}</span>
                     <button onClick={() => removeBunkSubject(sub.id)} className="absolute left-0 top-0 opacity-0 group-hover:opacity-100 text-red-500 transition-opacity"><Trash2 size={12}/></button>
                     
-                    <span className={`text-[10px] font-black ${isDanger && sub.total > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                      {sub.total === 0 ? 'No Data' : isDanger ? 'DANGER' : `${sub.safe} safe`}
+                    <span className={`text-[10px] font-black ${isDanger ? 'text-red-400' : 'text-green-400'}`}>
+                      {totalClasses === 0 ? 'No Data' : isDanger ? `Need ${neededClasses} more` : `${safeBunks} safe`}
                     </span>
                   </div>
-                  <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${isDanger && sub.total > 0 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${pct}%` }} />
+                  <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden relative">
+                     <div className="absolute left-[75%] top-0 bottom-0 w-[2px] bg-slate-400 z-10"></div>
+                     <div className={`h-full rounded-full ${isDanger ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${currentPct}%` }} />
                   </div>
                 </div>
               );
@@ -247,12 +449,10 @@ export default function Daily() {
             <Radio size={20} className="text-purple-500 animate-pulse" />
             <h2 className="text-xl font-black uppercase tracking-widest text-slate-200">Comms</h2>
           </div>
-          {/* Subtitle for Filtering (Change #4) */}
-          <p className="text-[10px] font-bold text-slate-500 font-sans mt-0.5 uppercase tracking-wide">Secured to {userBatch} & {userHostel}</p>
+          <p className="text-[10px] font-bold text-slate-500 font-sans mt-0.5 uppercase tracking-wide">Secured to {userData.batch} & {userData.hostel}</p>
         </div>
         
-        {/* Role Based Access Control UI (Change #6) */}
-        {userRole !== 'student' ? (
+        {isAdmin ? (
           <button onClick={() => setShowAddComm(true)} className="flex items-center gap-1 text-xs font-black text-slate-400 hover:text-purple-400 bg-slate-900 px-2 py-1 rounded-sm border border-slate-800 transition-colors">
             <Plus size={14} /> POST
           </button>
@@ -261,20 +461,29 @@ export default function Daily() {
         )}
       </div>
       
-      {/* Scrollable Comms Container */}
       <div className="bg-slate-900/60 border border-slate-700 rounded-xl overflow-hidden shadow-inner flex flex-col max-h-[220px]">
         <div className="overflow-y-auto hide-scrollbar flex-1">
-          {commsRadar.map((msg, idx) => (
-            <div key={msg.id} className={`p-4 ${idx !== commsRadar.length - 1 ? 'border-b border-slate-800/50' : ''}`}>
-              <div className="flex justify-between items-center mb-1.5">
-                <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-sm ${msg.urgent ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                  #{msg.tag}
-                </span>
-                <span className="text-xs font-bold text-slate-500 font-sans">{msg.time}</span>
-              </div>
-              <p className="text-sm text-slate-300 font-sans leading-relaxed">{msg.text}</p>
-            </div>
-          ))}
+          {isLoading ? (
+             <div className="p-6 flex justify-center"><Loader2 className="animate-spin text-slate-600" /></div>
+          ) : commsRadar.length === 0 ? (
+             <div className="p-6 text-center text-slate-500 font-sans text-sm">Radio silence. No new comms.</div>
+          ) : (
+            commsRadar.map((msg, idx) => {
+              const d = new Date(msg.created_at + 'Z'); 
+              const timeString = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+              return (
+                <div key={msg.id} className={`p-4 ${idx !== commsRadar.length - 1 ? 'border-b border-slate-800/50' : ''}`}>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-sm ${msg.urgent ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                      #{msg.tag}
+                    </span>
+                    <span className="text-xs font-bold text-slate-500 font-sans">{timeString}</span>
+                  </div>
+                  <p className="text-sm text-slate-300 font-sans leading-relaxed">{msg.text}</p>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
@@ -302,8 +511,71 @@ export default function Daily() {
       {/* ========================================== */}
       {/* MODALS */}
       {/* ========================================== */}
+      <AnimatePresence>
+        {showMenuViewer && messMenuData && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowMenuViewer(false)} className="fixed inset-0 bg-black/95 z-[90] flex flex-col items-center justify-center p-4">
+              <button onClick={() => setShowMenuViewer(false)} className="absolute top-6 right-4 p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white z-50"><X size={24} /></button>
+              
+              <div className="w-full max-w-lg mb-4">
+                 <h3 className="text-2xl font-black text-white uppercase tracking-widest leading-none">{userData.hostel} Menu</h3>
+                 <p className="text-[10px] font-sans font-bold text-slate-400 uppercase tracking-widest mt-1">
+                   Updated by <span className="text-blue-400">{messMenuData.uploader}</span> on {messMenuData.time}
+                 </p>
+              </div>
 
-      {/* 1. ACAD VAULT MODAL */}
+              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg rounded-xl overflow-hidden shadow-2xl relative bg-slate-900 flex-1 max-h-[65vh]">
+                <img src={messMenuData.url} alt="Mess Menu" className="w-full h-full object-contain" />
+              </motion.div>
+
+              <div className="w-full max-w-lg mt-6 flex gap-3">
+                <button onClick={() => alert("Report sent to moderators.")} className="py-4 px-6 font-black bg-slate-900 text-red-500 border-2 border-slate-800 rounded-xl flex items-center justify-center hover:bg-slate-800 transition-colors">
+                  <Flag size={20}/>
+                </button>
+                <button onClick={() => { setShowMenuViewer(false); menuFileInputRef.current?.click(); }} className="flex-1 py-4 font-black bg-blue-600 text-white border-2 border-blue-500 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-500 transition-colors uppercase tracking-widest">
+                  <UploadCloud size={20}/> Update Photo
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showWeekSchedule && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowWeekSchedule(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60]" />
+            <motion.div 
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t-2 border-slate-700 rounded-t-3xl z-[70] flex flex-col max-h-[85vh] h-[75vh]"
+            >
+              <div className="p-5 border-b-2 border-slate-800 flex justify-between items-center shrink-0">
+                <h2 className="text-2xl font-black tracking-widest uppercase flex items-center gap-2">
+                  <CalendarDays className="text-blue-500" /> Week Grid
+                </h2>
+                <button onClick={() => setShowWeekSchedule(false)} className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white"><X size={20} /></button>
+              </div>
+
+              <div className="p-4 overflow-y-auto flex-1 hide-scrollbar bg-slate-950/50 space-y-4">
+                {weekSchedule.map((dayData, idx) => (
+                  <div key={idx} className="bg-slate-900 border-2 border-slate-800 rounded-xl p-3">
+                    <h3 className="text-lg font-black text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-800 pb-1">{dayData.day}</h3>
+                    <div className="space-y-2">
+                      {dayData.classes.map((c: any, i: number) => (
+                         <div key={i} className="text-sm font-bold text-slate-400 font-sans flex items-center gap-2">
+                           <div className="w-1.5 h-1.5 rounded-full bg-blue-500" /> {c.name} <span className="text-slate-500">({c.time.split('-')[0]?.trim()})</span>
+                         </div>
+                      ))}
+                      {dayData.classes.length === 0 && <div className="text-xs text-slate-500 italic">No classes</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showArchives && (
           <>
@@ -325,23 +597,42 @@ export default function Daily() {
                     <Search className="absolute left-3 top-3 text-slate-500" size={20} />
                     <input type="text" placeholder="Search files, tags, codes..." className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-slate-200 font-sans font-bold focus:outline-none focus:border-blue-500 transition-colors" />
                   </div>
+                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                    <span className="text-[10px] font-black bg-slate-800 text-slate-400 px-2 py-1 rounded-sm uppercase shrink-0">Tags:</span>
+                    {['PYQ', 'Notes', 'Tutorial', 'Uta303', 'Semester 2'].map(tag => (
+                      <span key={tag} className="text-[10px] font-bold bg-slate-800 border border-slate-700 text-slate-300 px-2 py-1 rounded-full whitespace-nowrap shrink-0 hover:bg-slate-700 cursor-pointer">{tag}</span>
+                    ))}
+                  </div>
                 </div>
 
-                {/* HIERARCHICAL FILE EXPLORER (Changes #5, #7) */}
                 <div className="bg-slate-900 border-2 border-slate-800 rounded-xl p-3 font-sans space-y-1">
                   
-                  {/* Streams Folder */}
+                  <div className="mb-2">
+                    <div onClick={() => toggleFolder('yr1')} className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer py-2 px-2 hover:bg-slate-800/50 rounded-md transition-colors">
+                      {expandedFolders['yr1'] ? <ChevronDown size={18} className="text-blue-400" /> : <ChevronRight size={18} className="text-slate-500" />}
+                      <FolderOpen size={18} className="text-blue-400" />
+                      <span className="font-bold">Year 1 (Common)</span>
+                    </div>
+                    {expandedFolders['yr1'] && (
+                      <div className="pl-9 border-l border-slate-700 ml-4 py-1 space-y-2">
+                        <div className="flex items-center gap-2 text-slate-400 hover:text-blue-300 cursor-pointer text-sm">
+                          <FolderOpen size={14} className="text-slate-500"/> Mathematics - I (UMA010)
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-400 hover:text-blue-300 cursor-pointer text-sm">
+                          <FolderOpen size={14} className="text-slate-500"/> Physics (UPH004)
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div>
                     <div onClick={() => toggleFolder('streams')} className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer py-2 px-2 hover:bg-slate-800/50 rounded-md transition-colors">
                       {expandedFolders['streams'] ? <ChevronDown size={18} className="text-purple-400" /> : <ChevronRight size={18} className="text-slate-500" />}
                       <FolderOpen size={18} className="text-purple-400" />
                       <span className="font-bold">Streams</span>
                     </div>
-                    
                     {expandedFolders['streams'] && (
                       <div className="pl-6 border-l border-slate-700 ml-4 py-1 space-y-1">
-                        
-                        {/* COE Subfolder */}
                         <div>
                            <div onClick={() => toggleFolder('coe')} className="flex items-center gap-2 text-slate-400 hover:text-white cursor-pointer py-1.5 px-2 hover:bg-slate-800/50 rounded-md text-sm mt-1">
                             {expandedFolders['coe'] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -349,13 +640,9 @@ export default function Daily() {
                            </div>
                            {expandedFolders['coe'] && (
                              <div className="pl-6 border-l border-slate-700/50 ml-3 py-1 space-y-2">
-                               {/* Scheme moved inside COE */}
                                <div className="flex items-center gap-2 text-slate-400 hover:text-white cursor-pointer py-1 px-2 hover:bg-slate-800/50 rounded-md text-sm">
                                  <FileText size={14} className="text-red-400"/> COE_Stream_Scheme.pdf
                                </div>
-                               <div className="flex items-center gap-2 text-slate-500 hover:text-slate-300 cursor-pointer text-sm py-1"><FolderOpen size={14}/> Year 2</div>
-                               
-                               {/* Year 3 -> DSA (Demoing Path-derived Tags) */}
                                <div>
                                   <div onClick={() => toggleFolder('yr3')} className="flex items-center gap-2 text-slate-500 hover:text-slate-300 cursor-pointer text-sm py-1">
                                     {expandedFolders['yr3'] ? <ChevronDown size={12}/> : <ChevronRight size={12}/>} <FolderOpen size={14}/> Year 3
@@ -366,7 +653,6 @@ export default function Daily() {
                                       <div className="pl-6 ml-2 space-y-2">
                                         <div className="flex flex-col text-slate-400 bg-slate-950/50 p-2 rounded border border-slate-800">
                                           <div className="flex items-center gap-2 text-xs font-bold mb-1.5 hover:text-white cursor-pointer"><FileText size={12} className="text-blue-400"/> Linked_Lists_PYQ.pdf</div>
-                                          {/* Mocking Path-derived Tags */}
                                           <div className="flex gap-1 flex-wrap">
                                             <span className="text-[8px] bg-slate-800 px-1.5 rounded text-slate-500">COE</span>
                                             <span className="text-[8px] bg-slate-800 px-1.5 rounded text-slate-500">Year 3</span>
@@ -380,35 +666,80 @@ export default function Daily() {
                              </div>
                            )}
                         </div>
-
-                        {/* ENC Subfolder */}
-                        <div className="flex items-center gap-2 text-slate-400 hover:text-white cursor-pointer py-1.5 px-2 hover:bg-slate-800/50 rounded-md text-sm">
-                          <ChevronRight size={14} />
-                          <FolderOpen size={16} className="text-slate-500" /> Electronics (ENC)
-                        </div>
-
                       </div>
                     )}
                   </div>
                 </div>
+
+                <button className="w-full mt-6 py-4 bg-slate-800 border-2 border-slate-700 border-dashed rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 hover:border-blue-500/50 transition-all font-black uppercase tracking-widest shadow-inner">
+                  <Plus size={20} className="text-blue-500" /> Add Resource Link
+                </button>
               </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
 
-      {/* 2. Dummy Camera Upload Modal */}
       <AnimatePresence>
-        {showCameraMode && (
+        {showAddComm && isAdmin && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCameraMode(false)} className="fixed inset-0 bg-black/90 z-[80] flex items-center justify-center p-4">
-              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} onClick={(e) => e.stopPropagation()} className="bg-slate-900 border-2 border-slate-700 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl">
-                <Camera size={48} className="mx-auto text-blue-500 mb-4" />
-                <h3 className="text-2xl font-black mb-2 uppercase tracking-wide">Update Mess Menu</h3>
-                <p className="text-slate-400 font-sans text-sm mb-6 font-bold leading-relaxed">Take a picture of the whiteboard. Your upload will be visible to everyone in {userHostel} until midnight.</p>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowAddComm(false)} className="fixed inset-0 bg-black/90 z-[80] flex flex-col items-center justify-center p-4">
+              <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }} onClick={(e) => e.stopPropagation()} className="bg-slate-900 border-2 border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                <h3 className="text-2xl font-black mb-4 uppercase tracking-wide text-purple-400 flex items-center gap-2"><Radio size={24}/> Transmit</h3>
+                
+                <input 
+                  type="text" 
+                  placeholder="Tag (e.g. ADMIN, ACAD)" 
+                  value={newComm.tag}
+                  onChange={(e) => setNewComm({...newComm, tag: e.target.value})}
+                  className="w-full mb-3 bg-slate-950 border border-slate-700 rounded-md px-3 py-2 font-bold font-sans text-slate-200 focus:outline-none focus:border-purple-500 uppercase" 
+                />
+                
+                <textarea 
+                  placeholder="Write your broadcast here..." 
+                  value={newComm.text}
+                  onChange={(e) => setNewComm({...newComm, text: e.target.value})}
+                  className="w-full h-24 mb-3 bg-slate-950 border border-slate-700 rounded-md px-3 py-2 font-sans text-slate-200 focus:outline-none focus:border-purple-500 resize-none"
+                ></textarea>
+
+                <div className="mb-4 p-3 bg-slate-950/50 border border-slate-800 rounded-lg">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block flex items-center gap-1"><Target size={12}/> Target Audience</label>
+                  <select 
+                    value={newComm.targetType} 
+                    onChange={(e) => setNewComm({...newComm, targetType: e.target.value, targetValue: ''})}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 font-bold font-sans text-slate-200 text-sm focus:outline-none focus:border-purple-500 mb-2"
+                  >
+                    <option value="ALL">All Students (Global)</option>
+                    <option value="BATCH">Specific Batch</option>
+                    <option value="HOSTEL">Specific Hostel</option>
+                    <option value="STREAM">Specific Stream</option>
+                    <option value="YEAR">Specific Year</option>
+                  </select>
+
+                  {newComm.targetType !== 'ALL' && (
+                    <input 
+                      type="text" 
+                      placeholder={`Enter ${newComm.targetType.toLowerCase()} (e.g. ${newComm.targetType === 'YEAR' ? '2025' : newComm.targetType === 'HOSTEL' ? 'Hostel J' : '1A84'})`}
+                      value={newComm.targetValue}
+                      onChange={(e) => setNewComm({...newComm, targetValue: e.target.value})}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 font-sans text-slate-200 text-sm focus:outline-none focus:border-purple-500"
+                    />
+                  )}
+                </div>
+                
+                <label className="flex items-center gap-2 mb-4 text-sm font-bold text-red-400 font-sans cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={newComm.urgent}
+                    onChange={(e) => setNewComm({...newComm, urgent: e.target.checked})}
+                    className="w-4 h-4 accent-red-500 cursor-pointer"
+                  />
+                  <AlertTriangle size={16} /> Mark as Urgent
+                </label>
+
                 <div className="flex gap-3">
-                  <button onClick={() => setShowCameraMode(false)} className="flex-1 py-3 font-bold border-2 border-slate-700 rounded-lg text-slate-300 hover:bg-slate-800">Cancel</button>
-                  <button onClick={() => setShowCameraMode(false)} className="flex-1 py-3 font-black bg-blue-600 text-white border-2 border-blue-500 rounded-lg flex items-center justify-center gap-2">Snap It</button>
+                  <button onClick={() => setShowAddComm(false)} className="flex-1 py-3 font-bold border-2 border-slate-700 rounded-lg text-slate-300 hover:bg-slate-800">Cancel</button>
+                  <button onClick={handleBroadcast} className="flex-1 py-3 font-black bg-purple-600 text-white border-2 border-purple-500 rounded-lg hover:bg-purple-500 transition-colors">Broadcast</button>
                 </div>
               </motion.div>
             </motion.div>
