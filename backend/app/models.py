@@ -13,10 +13,9 @@ class User(Base):
     phone = Column(String, nullable=True)
     university = Column(String, default="Thapar Institute of Engineering & Technology")
     
-    # Security
-    hashed_password = Column(String)
-    
     # Campus Identity (Settings)
+    roll_number = Column(String, unique=True, index=True)
+    stream = Column(String, default="COE")
     batch = Column(String, default="1A84")
     semester = Column(Integer, default=1)
     hostel = Column(String, default="Day Scholar")

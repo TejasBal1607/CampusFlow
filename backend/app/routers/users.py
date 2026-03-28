@@ -5,7 +5,6 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-# Make sure this import path matches your project structure
 from app.routers.auth import get_current_user 
 from app import models
 from app.database import get_db
@@ -13,6 +12,11 @@ from app.database import get_db
 router = APIRouter(prefix="/users", tags=["Users"])
 
 class UserCreate(BaseModel):
+    roll_number: str
+    stream: str = "COE"
+    batch: str = "1A84"
+    semester: int = 1
+    hostel: str = "Day Scholar"
     university: str = "Thapar Institute of Engineering & Technology"
     name: str
     phone : Optional[str] = None
@@ -22,9 +26,12 @@ class UserOut(BaseModel):
     id: int
     name: str
     email: str
-    # FIX: Made phone optional so it doesn't crash if a user hasn't set one yet
     phone: Optional[str] = None
     batch: str
+    stream: Optional[str] = None      # FIX: Made Optional
+    semester: int
+    hostel: str
+    roll_number: Optional[str] = None # FIX: Made Optional
     
     class Config:
         from_attributes = True
@@ -51,20 +58,15 @@ def get_all_users(
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
-    """
-    Search for friends by exact phone number or partial name.
-    Limits to 5 results for privacy.
-    """
     if len(query) < 3:
-        return [] # Don't search if they only typed 1 or 2 letters
+        return [] 
 
-    # Search logic: matches phone or a partial name match (case-insensitive)
     results = db.query(models.User).filter(
         or_(
             models.User.phone.ilike(f"%{query}%"),
             models.User.name.ilike(f"%{query}%")
         ),
-        models.User.id != current_user.id # Don't return the user searching
+        models.User.id != current_user.id 
     ).limit(5).all()
     
     return results

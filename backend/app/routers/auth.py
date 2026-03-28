@@ -17,21 +17,23 @@ SECRET_KEY = "MARZI@MERI?"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 Days
 
-# !!! IMPORTANT: Replace this with your actual Google Client ID !!!
 GOOGLE_CLIENT_ID = "372265007546-l79uh0fiofspf15rrtc1q71f0ihr40nt.apps.googleusercontent.com"
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # --- SCHEMAS ---
 class GoogleAuthRequest(BaseModel):
-    token: str # The JWT token sent directly from the React Google Login button
+    token: str 
 
+# FIX: Added stream and roll_number
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     batch: Optional[str] = None
     semester: Optional[int] = None
     hostel: Optional[str] = None
+    stream: Optional[str] = None
+    roll_number: Optional[str] = None
 
 class TokenOut(BaseModel):
     access_token: str
@@ -39,6 +41,7 @@ class TokenOut(BaseModel):
     user_id: int
     name: str
 
+# FIX: Added stream and roll_number (Made them Optional to prevent 500 crashes)
 class UserOut(BaseModel):
     id: int
     name: str
@@ -48,6 +51,8 @@ class UserOut(BaseModel):
     batch: str
     semester: int
     hostel: str
+    stream: str | None
+    roll_number: str | None
     class Config:
         from_attributes = True
 
@@ -75,20 +80,17 @@ def get_current_user(token: str, db: Session = Depends(get_db)):
 @router.post("/google", response_model=TokenOut)
 def google_auth(req: GoogleAuthRequest, db: Session = Depends(get_db)):
     try:
-        # 1. Verify the token with Google
         idinfo = id_token.verify_oauth2_token(req.token, requests.Request(), GOOGLE_CLIENT_ID)
         
         email = idinfo['email']
         name = idinfo.get('name', 'Student')
 
-        # 2. Enforce the Domain Rule (with your Exception)
         if not email.endswith('@thapar.edu') and email != 'tejas1607.best@gmail.com':
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, 
                 detail="Access Denied. You must use a @thapar.edu email to join."
             )
 
-        # 3. Check if user exists (Login), or create them (Auto-Register)
         user = db.query(models.User).filter(models.User.email == email).first()
         
         if not user:
@@ -96,13 +98,11 @@ def google_auth(req: GoogleAuthRequest, db: Session = Depends(get_db)):
                 name=name, 
                 email=email, 
                 university="Thapar Institute of Engineering & Technology",
-                hashed_password="oauth_managed" # Dummy password since Google handles auth
             )
             db.add(user)
             db.commit()
             db.refresh(user)
 
-        # 4. Generate our own App Session Token
         access_token = jwt.encode(
             {"sub": str(user.id), "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, 
             SECRET_KEY, algorithm=ALGORITHM
@@ -110,7 +110,6 @@ def google_auth(req: GoogleAuthRequest, db: Session = Depends(get_db)):
         return {"access_token": access_token, "token_type": "bearer", "user_id": user.id, "name": user.name}
 
     except ValueError:
-        # Invalid token
         raise HTTPException(status_code=400, detail="Invalid Google Authentication Token")
 
 @router.get("/me", response_model=UserOut)
@@ -126,6 +125,8 @@ def update_me(payload: UserUpdate, token: str, db: Session = Depends(get_db)):
     if payload.batch: user.batch = payload.batch
     if payload.semester: user.semester = payload.semester
     if payload.hostel: user.hostel = payload.hostel
+    if payload.stream: user.stream = payload.stream
+    if payload.roll_number: user.roll_number = payload.roll_number
 
     db.commit()
     db.refresh(user)
