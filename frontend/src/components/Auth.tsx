@@ -21,6 +21,7 @@ export default function Auth({ onLoginSuccess }: { onLoginSuccess: (token: strin
         token: credentialResponse.credential
       });
       
+      
       onLoginSuccess(res.data.access_token, res.data.user_id, res.data.name);
     } catch (error: any) {
       setErrorMsg(error.response?.data?.detail || "Authentication failed");

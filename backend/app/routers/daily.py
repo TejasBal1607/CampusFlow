@@ -12,14 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile,
 from pydantic import BaseModel
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from app import models
 from app.database import get_db
 from app.routers.auth import get_current_user
 
 # Configure Gemini
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY", "YOUR_API_KEY_HERE"))
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", "YOUR_API_KEY_HERE"))
 
 router = APIRouter(prefix="/daily", tags=["Daily HUD"])
 
@@ -94,52 +95,55 @@ async def sync_timetable(
     img_data = await image.read()
     
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        # 1. Initialize the new Client (ensure this is using the new google.genai)
+        # Note: You can also move the client initialization to the top of the file
+        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         
-        # DEFENSIVE PROMPT
+        # 2. Updated Prompt
         prompt = """
         STEP 1: Verify if this image is a college class timetable. 
-        If it is NOT a timetable (e.g., it's a person, a meme, or random text), return exactly: {"error": "not_a_timetable"}
+        If it is NOT a timetable, return exactly: {"error": "not_a_timetable"}
         
         STEP 2: If it IS a timetable, extract the schedule into a strict JSON format for exactly 5 days (Monday-Friday).
-        Badge colors: Green=Lecture, Orange/Yellow=Lab, Purple/Blue=Tutorial.
         
-        Format:
-        [ {"day": "Monday", "classes": [...]}, ... ]
+        CRITICAL INSTRUCTIONS:
+        - The text inside the Orange/Yellow badges says "Practical". Treat this as "Lab".
+        - There are timetable where some days are almost empty or their are classes in multiple slots with long breaks. Pay attention and extract each class properly.
+        - JSON format: [{"day": "Monday", "classes": [{"name": "...", "time": "...", "venue": "...", "type": "..."}]}, ...]
         
         Return ONLY valid JSON.
         """
         
-        response = model.generate_content([
-            {'mime_type': image.content_type, 'data': img_data},
-            prompt
-        ])
+        # 3. Use the new response syntax
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_bytes(data=img_data, mime_type=image.content_type),
+                prompt
+            ]
+        )
         
         raw_text = response.text.strip().replace('```json', '').replace('```', '')
         structured_data = json.loads(raw_text)
         
+        # --- THE AI NORMALIZER ---
         if isinstance(structured_data, list):
             for day in structured_data:
                 for c in day.get('classes', []):
-                    # If Gemini invented 'start_time', merge it into 'time'
                     if 'start_time' in c:
                         c['time'] = f"{c['start_time']} - {c.get('end_time', '')}".strip(" -")
-                    
-                    # Ensure 'type' is exactly what the frontend expects
                     if c.get('type') == 'Practical':
                         c['type'] = 'Lab'
 
         # --- SANITY CHECK ---
         if isinstance(structured_data, dict) and structured_data.get("error") == "not_a_timetable":
             raise HTTPException(status_code=400, detail="Nice try, but that's not a timetable. Upload the real deal!")
-        
-        
-        # Double Check: Did it actually find any classes?
+
         all_classes = [c for day in structured_data for c in day.get('classes', [])]
-        if len(all_classes) < 3: # A real batch has way more than 3 classes a week
+        if len(all_classes) < 3:
             raise HTTPException(status_code=400, detail="This timetable looks empty or invalid.")
         
-        # If we passed the bouncer, save to cache
+        # --- DB CACHE LOGIC ---
         existing_cache = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
         if existing_cache:
             existing_cache.schedule_data = structured_data
@@ -150,13 +154,10 @@ async def sync_timetable(
         return structured_data
         
     except json.JSONDecodeError:
-        raise HTTPException(status_code=422, detail="The AI got confused by that image. Try a clearer screenshot.")
-    except HTTPException as he:
-        raise he
+        raise HTTPException(status_code=422, detail="The AI got confused. Try a clearer screenshot.")
     except Exception as e:
         print(f"Error: {e}")
-        raise HTTPException(status_code=500, detail="Bouncer malfunction. Try again later.")    
-
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
 # COMMS RADAR ROUTES

@@ -7,9 +7,14 @@ import { Home, Wallet, BookOpen, ShoppingBag, Settings, Pin } from 'lucide-react
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
 export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) => void }) {  
+  const token = localStorage.getItem('cf_token'); // <-- Added token here so the whole file can use it
+  
   const [activeNav, setActiveNav] = useState('home');
   const [currentNoticeIndex, setCurrentNoticeIndex] = useState(0);
   
+  const [userData, setUserData] = useState<any>({ role: '', batch: '', hostel: '' });
+  const [fresherConfig, setFresherConfig] = useState({ batches: [], hostels: [] });
+
   // --- REAL BACKEND CONNECTION STATE ---
   const [financeData, setFinanceData] = useState({ ideal_month_avg: 0, percentage: 0 });
   const [isLoadingFinance, setIsLoadingFinance] = useState(true);
@@ -18,12 +23,21 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
     name: 'Loading...', time: '', location: '', isFree: false
   });
 
+
   useEffect(() => {
     let cachedTimetable: any = null;
 
     const fetchAllData = async () => {
-      const token = localStorage.getItem('cf_token');
       if (!token) return;
+
+      try {
+        const profileRes = await axios.get(`${API_HOST}/auth/me?token=${token}`);
+        setUserData({ role: profileRes.data.role, batch: profileRes.data.batch, hostel: profileRes.data.hostel });
+        
+        // Fetch dynamic lists for the modal
+        const confRes = await axios.get(`${API_HOST}/auth/config/freshers`);
+        setFresherConfig(confRes.data);
+      } catch (e) { }
 
       // 1. Finance Fetch
       try {
@@ -31,6 +45,7 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
         const currentUserId = parseInt(JSON.parse(atob(token.split('.')[1])).sub) || 1; 
         const url = `${API_HOST}/finance/summary/${currentUserId}?month=${today.getMonth() + 1}&year=${today.getFullYear()}`;
         const financeRes = await axios.get(url);
+        
         
         setFinanceData({
           ideal_month_avg: financeRes.data.ideal_month_avg,
@@ -302,6 +317,55 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
           </div>
         </motion.div>
       </motion.div>
+    {/* THE FRESHER GUEST SETUP MODAL */}
+      <AnimatePresence>
+        {userData.role === 'guest' && (!userData.batch || userData.batch === '') && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4">
+            <div className="bg-slate-900 border-2 border-blue-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(59,130,246,0.2)]">
+              <h2 className="text-2xl font-black text-white uppercase tracking-widest mb-2">Welcome to CampusFLOW</h2>
+              <p className="text-sm text-slate-400 font-sans mb-6">Since you logged in with a personal email, you're in Guest Mode. Tell us where you belong.</p>
+              
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Temporary Batch</label>
+                  <select 
+                    onChange={(e) => setUserData({...userData, batch: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white font-bold mt-1"
+                  >
+                    <option value="">Select Batch...</option>
+                    <option value="Unassigned">Not Allotted Yet</option>
+                    {fresherConfig.batches.map((b: string) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Temporary Hostel</label>
+                  <select 
+                    onChange={(e) => setUserData({...userData, hostel: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white font-bold mt-1"
+                  >
+                    <option value="">Select Hostel...</option>
+                    <option value="Unassigned">Not Allotted Yet</option>
+                    {fresherConfig.hostels.map((h: string) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+              </div>
+              
+              <button 
+                onClick={async () => {
+                  if(!userData.batch || !userData.hostel) return alert("Please select an option for both.");
+                  try {
+                    await axios.put(`${API_HOST}/auth/me?token=${token}`, { batch: userData.batch, hostel: userData.hostel });
+                    window.location.reload(); 
+                  } catch (e) { alert("Failed to save. Try again."); }
+                }}
+                className="w-full py-3 bg-blue-600 text-white font-black tracking-widest uppercase rounded-xl hover:bg-blue-500"
+              >
+                Enter Sandbox
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

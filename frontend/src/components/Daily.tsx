@@ -26,36 +26,40 @@ export default function Daily() {
   const [showAddComm, setShowAddComm] = useState(false);
   const [showWeekSchedule, setShowWeekSchedule] = useState(false);
   
-  // Timetable Sync State
   const [needsSync, setNeedsSync] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [weekSchedule, setWeekSchedule] = useState<any[]>([]);
   const syncInputRef = useRef<HTMLInputElement>(null);
   
-  // Mess Menu State
   const [messMenuData, setMessMenuData] = useState<{url: string, uploader: string, time: string} | null>(null);
   const [showMenuViewer, setShowMenuViewer] = useState(false);
   const [isUploadingMenu, setIsUploadingMenu] = useState(false);
   const menuFileInputRef = useRef<HTMLInputElement>(null);
   
-  const [userData, setUserData] = useState({ email: '', batch: '1A84', hostel: 'Day Scholar', stream: 'COE' });
-  const isAdmin = userData.email === 'tejas1607.best@gmail.com';
+  // FIX: Added role to prevent TS Errors
+  const [userData, setUserData] = useState({ 
+    email: '', 
+    batch: '1A84', 
+    hostel: 'Day Scholar', 
+    stream: 'COE', 
+    role: 'student' 
+  });
+  
+  const isAdmin = userData.role === 'super_admin' || userData.email === 'tejas1607.best@gmail.com';
+  const isGuest = userData.role === 'guest';
+  const isUnassigned = userData.batch === 'Unassigned' || !userData.batch;
 
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ 'streams': true, 'coe': true });
   const toggleFolder = (folderId: string) => setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
 
-  // Live Data State
   const [todayClasses, setTodayClasses] = useState<ClassSession[]>([]);
   const [bunkMeter, setBunkMeter] = useState<any[]>([]);
   const [showAddSubject, setShowAddSubject] = useState(false);
-  const [editingBunk, setEditingBunk] = useState<{id: number, subject: string, attended: number, bunked: number} | null>(null); // NEW: Manual Bunk Entry
+  const [editingBunk, setEditingBunk] = useState<{id: number, subject: string, attended: number, bunked: number} | null>(null); 
   
   const [commsRadar, setCommsRadar] = useState<any[]>([]);
   const [newComm, setNewComm] = useState({ tag: '', text: '', urgent: false, targetType: 'ALL', targetValue: '' });
 
-  // ==========================================
-  // DATA FETCHING
-  // ==========================================
   const fetchDailyData = async () => {
     try {
       const profileRes = await axios.get(`${API_HOST}/auth/me?token=${token}`);
@@ -64,7 +68,8 @@ export default function Daily() {
         email: profileRes.data.email,
         batch: profileRes.data.batch || '1A84',
         hostel: userHostel,
-        stream: profileRes.data.stream || 'COE'
+        stream: profileRes.data.stream || 'COE',
+        role: profileRes.data.role || 'student'
       });
 
       try {
@@ -98,11 +103,10 @@ export default function Daily() {
       setCommsRadar(commsRes.data);
       setBunkMeter(bunkRes.data);
 
-      if (userHostel !== 'Day Scholar') {
+      if (userHostel !== 'Day Scholar' && userHostel !== 'Unassigned') {
         try {
           const menuRes = await axios.get(`${API_HOST}/daily/mess-menu?hostel=${encodeURIComponent(userHostel)}&token=${token}`);
           if (menuRes.data && menuRes.data.image_url) {
-            // Check if it's a Base64 string or an old local path
             const rawUrl = menuRes.data.image_url;
             const finalUrl = rawUrl.startsWith('data:') ? rawUrl : `${API_HOST}${rawUrl}`;
             
@@ -125,10 +129,8 @@ export default function Daily() {
     if (token) fetchDailyData();
   }, [token]);
 
-  // ==========================================
-  // ACTIONS & API CALLS
-  // ==========================================
   const handleSyncUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isGuest) return alert("Only verified users can upload timetables.");
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -148,8 +150,10 @@ export default function Daily() {
   };
 
   const handleMenuUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isGuest) return alert("Only verified users can upload menus.");
     const file = event.target.files?.[0];
     if (!file) return;
+    
     setIsUploadingMenu(true);
     const formData = new FormData();
     formData.append('image', file);
@@ -170,7 +174,6 @@ export default function Daily() {
     }
   };
 
-  // --- BUNK METER LOGIC ---
   const handleMarkAttendance = async (classId: number, subjectName: string, status: 'attended' | 'bunked' | 'cancelled' | null) => {
     setTodayClasses(classes => classes.map(c => c.id === classId ? { ...c, attendance: status } : c));
     const tracker = bunkMeter.find(b => b.subject === subjectName);
@@ -201,7 +204,6 @@ export default function Daily() {
     } catch (error) { console.error("Failed to remove bunk subject", error); }
   };
 
-  // NEW: Manual Override Save
   const saveManualBunkData = async () => {
     if (!editingBunk) return;
     try {
@@ -216,7 +218,6 @@ export default function Daily() {
     }
   };
 
-  // --- COMMS RADAR LOGIC ---
   const handleBroadcast = async () => {
     if (!newComm.tag || !newComm.text) return alert("Tag and Text are required!");
     if (newComm.targetType !== 'ALL' && !newComm.targetValue) return alert("Please specify the target value.");
@@ -235,7 +236,6 @@ export default function Daily() {
     } catch (error: any) { alert(error.response?.data?.detail || "Broadcast failed"); }
   };
 
-  // NEW: Delete Comms
   const handleDeleteComm = async (commId: number) => {
     if (!confirm("Delete this broadcast from the radar?")) return;
     try {
@@ -281,6 +281,15 @@ export default function Daily() {
       
       {isLoading ? (
         <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-600 size-10" /></div>
+      ) : isUnassigned ? (
+        // FIX: Replaced upload button with "Assign Batch" message
+        <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center mt-2">
+          <FileText size={40} className="text-slate-600 mb-3" />
+          <h3 className="text-xl font-black text-slate-300 uppercase tracking-widest mb-2">Batch Unassigned</h3>
+          <p className="text-sm font-bold text-slate-500 font-sans mb-4 max-w-[250px]">
+            Please select your batch in Settings to unlock the class tracker and timetable.
+          </p>
+        </div>
       ) : needsSync ? (
         <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center mt-2">
           <FileText size={40} className="text-slate-600 mb-3" />
@@ -290,11 +299,15 @@ export default function Daily() {
           </p>
           <input type="file" accept="image/*" ref={syncInputRef} className="hidden" onChange={handleSyncUpload} />
           <button 
-            onClick={() => syncInputRef.current?.click()} disabled={isSyncing}
-            className="py-3 px-6 font-black bg-blue-600 text-white border-2 border-blue-500 rounded-lg flex items-center gap-2 hover:bg-blue-500 transition-colors uppercase tracking-widest disabled:opacity-50"
+            onClick={() => {
+              if(isGuest) return alert("Only verified users can upload timetables.");
+              syncInputRef.current?.click();
+            }} 
+            disabled={isSyncing || isGuest}
+            className={`py-3 px-6 font-black text-white border-2 rounded-lg flex items-center gap-2 uppercase tracking-widest disabled:opacity-50 transition-colors ${isGuest ? 'bg-slate-700 border-slate-600 cursor-not-allowed' : 'bg-blue-600 border-blue-500 hover:bg-blue-500'}`}
           >
             {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <UploadCloud size={18} />}
-            {isSyncing ? 'Extracting Data...' : 'Upload PNG'}
+            {isSyncing ? 'Extracting Data...' : (isGuest ? 'Verified Only' : 'Upload PNG')}
           </button>
         </div>
       ) : todayClasses.length === 0 ? (
@@ -377,8 +390,12 @@ export default function Daily() {
       <motion.div 
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
-        className="bg-slate-100 p-2 pb-6 rounded-sm shadow-xl -rotate-2 relative flex flex-col h-[180px] group cursor-pointer"
-        onClick={() => messMenuData ? setShowMenuViewer(true) : menuFileInputRef.current?.click()}
+        className={`bg-slate-100 p-2 pb-6 rounded-sm shadow-xl -rotate-2 relative flex flex-col h-[180px] group ${isGuest && !messMenuData ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+        onClick={() => {
+          if (messMenuData) setShowMenuViewer(true);
+          else if (isGuest) alert("Link a verified Thapar ID to upload menus.");
+          else menuFileInputRef.current?.click();
+        }}
       >
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-3 bg-red-500/50 rotate-3 shadow-sm z-10" /> 
         
@@ -394,8 +411,10 @@ export default function Daily() {
             </>
           ) : (
             <>
-              <Camera size={28} className="text-slate-600 mb-1" />
-              <span className="text-xs font-black text-slate-400 uppercase tracking-widest text-center px-2">Snap<br/>Menu</span>
+              <Camera size={28} className={`${isGuest ? 'text-slate-700' : 'text-slate-600'} mb-1`} />
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest text-center px-2">
+                {isGuest ? 'Verified\nOnly' : 'Snap\nMenu'}
+              </span>
             </>
           )}
         </div>
@@ -508,7 +527,6 @@ export default function Daily() {
                       <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-sm ${msg.urgent ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-400'}`}>
                         #{msg.tag}
                       </span>
-                      {/* NEW: Admin Delete Button */}
                       {isAdmin && (
                         <button onClick={() => handleDeleteComm(msg.id)} className="text-red-500 hover:text-red-400 transition-colors">
                           <Trash2 size={12} />
@@ -550,7 +568,6 @@ export default function Daily() {
       {/* MODALS */}
       {/* ========================================== */}
 
-      {/* NEW: BUNK MANUAL EDIT MODAL */}
       <AnimatePresence>
         {editingBunk && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4">
@@ -590,7 +607,6 @@ export default function Daily() {
         )}
       </AnimatePresence>
 
-      {/* KEEP EXISTING MODALS (Menu Viewer, Week Schedule, Archives, Comms Add) */}
       <AnimatePresence>
         {showMenuViewer && messMenuData && (
           <>
@@ -612,8 +628,14 @@ export default function Daily() {
                 <button onClick={() => alert("Report sent to moderators.")} className="py-4 px-6 font-black bg-slate-900 text-red-500 border-2 border-slate-800 rounded-xl flex items-center justify-center hover:bg-slate-800 transition-colors">
                   <Flag size={20}/>
                 </button>
-                <button onClick={() => { setShowMenuViewer(false); menuFileInputRef.current?.click(); }} className="flex-1 py-4 font-black bg-blue-600 text-white border-2 border-blue-500 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-500 transition-colors uppercase tracking-widest">
-                  <UploadCloud size={20}/> Update Photo
+                <button onClick={() => { 
+                    if(isGuest) { alert("Only verified users can update photos."); return; }
+                    setShowMenuViewer(false); 
+                    menuFileInputRef.current?.click(); 
+                  }} 
+                  className={`flex-1 py-4 font-black text-white border-2 rounded-xl flex items-center justify-center gap-2 uppercase tracking-widest transition-colors ${isGuest ? 'bg-slate-700 border-slate-600 opacity-50 cursor-not-allowed' : 'bg-blue-600 border-blue-500 hover:bg-blue-500'}`}
+                >
+                  <UploadCloud size={20}/> {isGuest ? 'Verified Only' : 'Update Photo'}
                 </button>
               </div>
             </motion.div>
@@ -660,12 +682,15 @@ export default function Daily() {
               <div className="p-4 border-t-2 border-slate-800 bg-slate-900">
                 <input type="file" accept="image/*" ref={syncInputRef} className="hidden" onChange={handleSyncUpload} />
                 <button 
-                  onClick={() => syncInputRef.current?.click()}
-                  disabled={isSyncing}
-                  className="w-full py-3 font-black bg-slate-800 text-blue-400 border-2 border-slate-700 border-dashed rounded-xl flex items-center justify-center gap-2 hover:bg-slate-700 transition-colors uppercase tracking-widest disabled:opacity-50"
+                  onClick={() => {
+                    if (isGuest) return alert("Link a verified Thapar ID to use AI Sync.");
+                    syncInputRef.current?.click();
+                  }}
+                  disabled={isSyncing || isGuest}
+                  className={`w-full py-3 font-black text-blue-400 border-2 border-dashed rounded-xl flex items-center justify-center gap-2 uppercase tracking-widest transition-colors ${isGuest ? 'bg-slate-800 border-slate-700 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
                 >
                   {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <RotateCcw size={18} />}
-                  {isSyncing ? 'Re-Syncing...' : 'Fix Errors (Re-upload)'}
+                  {isSyncing ? 'Re-Syncing...' : (isGuest ? 'AI Sync (Verified Only)' : 'Fix Errors (Re-upload)')}
                 </button>
               </div>
             </motion.div>
@@ -693,12 +718,6 @@ export default function Daily() {
                   <div className="relative">
                     <Search className="absolute left-3 top-3 text-slate-500" size={20} />
                     <input type="text" placeholder="Search files, tags, codes..." className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-slate-200 font-sans font-bold focus:outline-none focus:border-blue-500 transition-colors" />
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
-                    <span className="text-[10px] font-black bg-slate-800 text-slate-400 px-2 py-1 rounded-sm uppercase shrink-0">Tags:</span>
-                    {['PYQ', 'Notes', 'Tutorial', 'Uta303', 'Semester 2'].map(tag => (
-                      <span key={tag} className="text-[10px] font-bold bg-slate-800 border border-slate-700 text-slate-300 px-2 py-1 rounded-full whitespace-nowrap shrink-0 hover:bg-slate-700 cursor-pointer">{tag}</span>
-                    ))}
                   </div>
                 </div>
 
@@ -768,8 +787,17 @@ export default function Daily() {
                   </div>
                 </div>
 
-                <button className="w-full mt-6 py-4 bg-slate-800 border-2 border-slate-700 border-dashed rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 hover:border-blue-500/50 transition-all font-black uppercase tracking-widest shadow-inner">
-                  <Plus size={20} className="text-blue-500" /> Add Resource Link
+                <button 
+                  onClick={() => {
+                    if (isGuest) alert("Only verified users can upload to the Acad Vault.");
+                    else alert("Link upload form opening..."); 
+                  }}
+                  disabled={isGuest}
+                  className={`w-full mt-6 py-4 border-2 border-dashed rounded-xl flex items-center justify-center gap-2 transition-all font-black uppercase tracking-widest shadow-inner
+                  ${isGuest ? 'bg-slate-900 border-slate-800 text-slate-600 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 hover:border-blue-500/50'}`}
+                >
+                  <Plus size={20} className={isGuest ? 'text-slate-600' : 'text-blue-500'} /> 
+                  {isGuest ? 'Upload Restricted' : 'Add Resource Link'}
                 </button>
               </div>
             </motion.div>

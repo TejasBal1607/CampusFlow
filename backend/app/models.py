@@ -1,8 +1,14 @@
 from sqlalchemy import JSON, Column, DateTime, Integer, String, Float, ForeignKey, Date, Boolean, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
-from app.utils import get_today_ist
+from datetime import datetime
+from app.utils import get_today_ist # Assuming this is your custom util
+
 Base = declarative_base()
+
+# ==========================================
+# EXISTING CORE TABLES (MODIFIED)
+# ==========================================
 
 class User(Base):
     __tablename__ = "users"
@@ -19,9 +25,17 @@ class User(Base):
     batch = Column(String, default="1A84")
     semester = Column(Integer, default=1)
     hostel = Column(String, default="Day Scholar")
+    
+    # --- NEW: RBAC & MODERATION ---
+    role = Column(String, default="student") # 'guest', 'student', 'class_admin', 'hostel_admin', 'super_admin'
+    is_verified = Column(Boolean, default=False) # False for Gmails, True for Thapar emails
+    banned_until = Column(DateTime, nullable=True) # If set and in the future, user cannot upload/post
+    
+    # Relationships
     expenses = relationship("Expense", back_populates="owner")
     incomes = relationship("Income", back_populates="owner")
     savings_locks = relationship("SavingsLock", back_populates="owner")
+
 
 class Expense(Base):
     __tablename__ = "expenses"
@@ -33,7 +47,6 @@ class Expense(Base):
     description = Column(String)
     date = Column(Date, default=get_today_ist())
     is_recurring = Column(Boolean, default=False)
-    
     owner = relationship("User", back_populates="expenses")
 
 
@@ -46,7 +59,6 @@ class Income(Base):
     description = Column(String)
     created_at = Column(Date, default=get_today_ist())
     is_recurring = Column(Boolean, default=False)
-
     owner = relationship("User", back_populates="incomes")
 
 
@@ -54,7 +66,7 @@ class MonthlyBudget(Base):
     __tablename__ = "monthly_budgets"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    month = Column(Integer)  # expected: 1-12
+    month = Column(Integer)  
     year = Column(Integer)
     amount = Column(Float, nullable=False)
 
@@ -66,7 +78,6 @@ class SavingsLock(Base):
     amount = Column(Float, nullable=False)
     purpose = Column(String)
     created_at = Column(Date, default=get_today_ist())
-
     owner = relationship("User", back_populates="savings_locks")
 
 
@@ -79,21 +90,16 @@ class CreditLedger(Base):
     description = Column(String)
     date = Column(Date, default=get_today_ist())
     is_settled = Column(Boolean, default=False)
-    creator_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Track who created the entry
+    creator_id = Column(Integer, ForeignKey("users.id"), nullable=True) 
 
-from datetime import datetime
-
-# ... (Keep all your existing models like User, Expense, Ledger, etc.) ...
 
 class Broadcast(Base):
     __tablename__ = "broadcasts"
-    
     id = Column(Integer, primary_key=True, index=True)
-    tag = Column(String, index=True) # e.g., 'ADMIN', 'HOSTEL J', 'ACAD'
+    tag = Column(String, index=True) 
     text = Column(String)
     urgent = Column(Boolean, default=False)
     
-    # Targeting rules (If ALL are null, it broadcasts to everyone)
     target_batch = Column(String, nullable=True)
     target_hostel = Column(String, nullable=True)
     target_stream = Column(String, nullable=True)
@@ -102,33 +108,108 @@ class Broadcast(Base):
     creator_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 class BunkTrack(Base):
     __tablename__ = "bunk_tracks"
-    
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     subject = Column(String)
-    
-    # We track total occurrences and how many they attended
     attended = Column(Integer, default=0)
     bunked = Column(Integer, default=0)
     cancelled = Column(Integer, default=0)
 
+
 class MessMenu(Base):
     __tablename__ = "mess_menus"
-    
     id = Column(Integer, primary_key=True, index=True)
-    hostel = Column(String, unique=True, index=True) # Only one active menu per hostel
+    hostel = Column(String, unique=True, index=True) 
     image_url = Column(String)
     uploader_id = Column(Integer, ForeignKey("users.id"))
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # --- NEW: STRIKE SYSTEM ---
+    report_count = Column(Integer, default=0) 
+    
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     uploader = relationship("User")
+
 
 class TimetableCache(Base):
     __tablename__ = "timetable_cache"
-    
     id = Column(Integer, primary_key=True, index=True)
-    batch = Column(String, unique=True, index=True) # e.g., '1A84'
-    schedule_data = Column(JSON) # Stores the structured dictionary from Gemini
+    batch = Column(String, unique=True, index=True) 
+    schedule_data = Column(JSON) 
+    # Note: updated_at serves perfectly for our 24-hour API cooldown check
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ==========================================
+# NEW TABLES: THE SLEEPING GIANTS
+# ==========================================
+
+class AcadResource(Base):
+    __tablename__ = "acad_resources"
+    id = Column(Integer, primary_key=True, index=True)
+    uploader_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, nullable=False)
+    file_url = Column(String, nullable=False) 
+    
+    tags = Column(JSON, default=list) # Array of strings e.g. ["PYQ", "UPH004", "Year 1"]
+    
+    status = Column(String, default="pending") # 'pending', 'approved', 'rejected'
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MarketListing(Base):
+    __tablename__ = "market_listings"
+    id = Column(Integer, primary_key=True, index=True)
+    seller_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, nullable=False)
+    description = Column(String)
+    price = Column(Float, nullable=False)
+    image_url = Column(String) 
+    
+    tags = Column(JSON, default=list) # e.g. ["Electronics", "Cooler"]
+    
+    is_sold = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Location(Base):
+    __tablename__ = "locations"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    description = Column(String)
+    image_url = Column(String)
+    coordinates = Column(String, nullable=True) # e.g. "30.3564,76.3647"
+    
+    tags = Column(JSON, default=list) # e.g. ["Eatery", "Open Late", "Coffee"]
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LocationReview(Base):
+    __tablename__ = "location_reviews"
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    rating = Column(Integer, nullable=False) # 1 to 5
+    comment = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Event(Base):
+    __tablename__ = "events"
+    id = Column(Integer, primary_key=True, index=True)
+    organizer_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, nullable=False)
+    description = Column(String)
+    poster_url = Column(String, nullable=False) # Crucial for the Insta-Story UI
+    venue = Column(String)
+    registration_link = Column(String, nullable=True)
+    
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False) # Frontend will use this to auto-delete expired stories
+    
+    status = Column(String, default="pending") # 'pending', 'approved'
+    created_at = Column(DateTime, default=datetime.utcnow)
+

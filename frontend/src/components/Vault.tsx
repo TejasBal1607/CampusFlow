@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-// --- IMPORTED 'X' HERE ---
-import { ChevronLeft, ChevronRight, Edit2, ArrowLeft, Plus, Camera, Users, Repeat, Check, Lock, ArrowUpRight, ArrowDownRight, Trash2, Loader2, Search, Download, AlertTriangle, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit2, ArrowLeft, Plus, Camera, Users, Repeat, Check, Lock, ArrowUpRight, ArrowDownRight, Trash2, Loader2, Search, Download, AlertTriangle, X, FolderOpen, ChevronDown, FileText } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -12,6 +11,7 @@ export default function Vault() {
   const token = localStorage.getItem('cf_token');
   const currentUserId = token ? parseInt(JSON.parse(atob(token.split('.')[1])).sub) : 1;
 
+  const [userRole, setUserRole] = useState('student');
   const [currentView, setCurrentView] = useState('overview');
   const [activeModal, setActiveModal] = useState('none');
   const [isLoading, setIsLoading] = useState(true);
@@ -66,6 +66,8 @@ export default function Vault() {
   const fetchAllData = async () => {
     setIsLoading(true);
     try {
+      const profileRes = await axios.get(`${API_HOST}/auth/me?token=${token}`);
+      setUserRole(profileRes.data.role);
       const q = `?month=${currentMonthNum}&year=${year}`;
       const summaryRes = await axios.get(`${API_HOST}/finance/summary/${currentUserId}${q}`);
       const data = summaryRes.data;
@@ -665,13 +667,11 @@ export default function Vault() {
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeModal} className="fixed inset-0 bg-black/70 z-[60] backdrop-blur-sm max-w-md mx-auto" />
             
-            {/* --- UPDATED RECEIPT CONTAINER WITH INTERNAL SCROLLING --- */}
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} 
               className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#fdfbf7] text-slate-900 z-[70] pt-12 pb-10 px-6 drop-shadow-[0_-10px_10px_rgba(0,0,0,0.3)] overflow-y-auto max-h-[85vh] hide-scrollbar"
               style={{ clipPath: 'polygon(0 15px, 5% 0, 10% 15px, 15% 0, 20% 15px, 25% 0, 30% 15px, 35% 0, 40% 15px, 45% 0, 50% 15px, 55% 0, 60% 15px, 65% 0, 70% 15px, 75% 0, 80% 15px, 85% 0, 90% 15px, 95% 0, 100% 15px, 100% 100%, 0 100%)' }}
             >
               
-              {/* --- ADDED CLOSE BUTTON --- */}
               <button 
                 onClick={closeModal} 
                 className="absolute top-4 right-4 text-slate-400 hover:text-red-500 bg-slate-200 hover:bg-red-100 rounded-full p-1 transition-colors z-50"
@@ -683,7 +683,13 @@ export default function Vault() {
                 <div>
                   <div className="flex justify-between items-center mb-6">
                     <h2 className="text-3xl font-extrabold uppercase tracking-widest text-slate-800">{selectedId ? 'Edit Expense' : 'New Expense'}</h2>
-                    <button onClick={() => fileInputRef.current?.click()} className="text-slate-500 hover:text-slate-900 p-2 border-2 border-slate-300 rounded-full border-dashed flex items-center justify-center mr-8">
+                    <button 
+                      onClick={() => {
+                        if (userRole === 'guest') return alert("Link a verified Thapar ID to use AI Receipt Scanning.");
+                        fileInputRef.current?.click();
+                      }} 
+                      className={`p-2 border-2 border-slate-300 rounded-full border-dashed flex items-center justify-center mr-8 transition-colors ${userRole === 'guest' ? 'text-slate-300 opacity-50 cursor-not-allowed' : 'text-slate-500 hover:text-slate-900'}`}
+                    >
                       {isOcrLoading ? <Loader2 className="animate-spin text-blue-500" size={24} /> : <Camera size={24} />}
                     </button>
                   </div>
