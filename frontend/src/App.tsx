@@ -6,30 +6,41 @@ import Daily from './components/Daily';
 import AdminDashboard from './components/Admin';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Home, Wallet, BookOpen, ShoppingBag, Settings, RefreshCw, Edit3, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Lock, Home, Wallet, BookOpen, ShoppingBag, Settings, RefreshCw, Edit3, ArrowLeft, CheckCircle2, ChevronRight, ChevronLeft, ShieldAlert, FileText, Camera } from 'lucide-react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
-const generateThaparBatches = () => {
+// ==========================================
+// THAPAR CUSTOM BATCH ENGINE
+// ==========================================
+const BATCH_CONFIG: any = {
+  1: { A: ['11-19','21-28','31-38','41-45','51-55','61-65','71-75','81-85','91-95'], B: ['11-18','21-28','31-38','41-45','51-55','61-65','71-75','81-85','91-95'], X: ['11-14','21-24'], G: ['11-14'], J: ['11'], R: ['11-13'] },
+  2: { E: ['11-12'], D: ['11-13'], S: ['11-15'], H: ['11-13','21-23'], W: ['11-14'], I: ['11-13'], A: ['11-12'], G: ['11-14'], J: ['11-12'], U: ['11'], B: ['11-13'], R: ['11-13'], F: ['11-14','21-23','31-33'], V: ['11-13'], O: ['11-14','21-24','31-34'], X: ['11-15'], Q: ['11-15','21-25','31-35','41'], C: ['11-18','21-25','31-35','41-45','51-55','61-65','71-75','81-82'] },
+  3: { E: ['11-13'], D: ['11-14'], S: ['11-15'], H: ['11-13','21-23'], W: ['11-13'], I: ['11-13'], A: ['11-12'], G: ['11-15'], J: ['11'], U: ['11'], B: ['11-13'], P: ['11-14'], F: ['11-14','21-24'], V: ['11-13'], O: ['11-14','21-24','31-33'], Q: ['11-16','21-26'], C: ['11-18','21-25','31-35','41-45','51-55','61-65','71-75'] },
+  4: { A: ['11'], J: ['11'], G: ['11'], E: ['11-12'], D: ['11-12'], H: ['11-12'], I: ['11-12'], S: ['11-13'], R: ['11-13'], O: ['11-14','21-24','31-33'], F: ['11-15','21-24'], C: ['11-19','21-29','31-39','41-49'], Q: ['11-17','21-27'] }
+};
+
+const getThaparBatches = (targetYear: number | null) => {
   const batches: string[] = [];
-  const poolConfigs = [
-    { pool: 'A', ranges: [[11, 19], [21, 28], [31, 38], [41, 45], [51, 55], [61, 65], [71, 75], [81, 85], [91, 95]] },
-    { pool: 'B', ranges: [[11, 18], [21, 28], [31, 38], [41, 45], [51, 55], [61, 65], [71, 75], [81, 85], [91, 95]] },
-    { pool: 'X', ranges: [[11, 14], [21, 24]] },
-    { pool: 'G', ranges: [[11, 14]] }, { pool: 'J', ranges: [[11, 11]] }, { pool: 'R', ranges: [[11, 13]] }
-  ];
-  [1, 2, 3, 4].forEach(year => {
-    poolConfigs.forEach(({ pool, ranges }) => {
-      ranges.forEach(([start, end]) => {
-        for (let i = start; i <= end; i++) batches.push(`${year}${pool}${i}`);
+  const processYear = (y: number) => {
+    if (!BATCH_CONFIG[y]) return;
+    Object.entries(BATCH_CONFIG[y]).forEach(([pool, ranges]) => {
+      (ranges as string[]).forEach(range => {
+        if (range.includes('-')) {
+          const [start, end] = range.split('-').map(Number);
+          for (let i = start; i <= end; i++) batches.push(`${y}${pool}${i}`);
+        } else {
+          batches.push(`${y}${pool}${range}`);
+        }
       });
     });
-  });
+  };
+  if (targetYear) processYear(targetYear);
+  else [1, 2, 3, 4].forEach(processYear);
   return batches;
 };
 
-const THAPAR_BATCHES = generateThaparBatches();
 const THAPAR_STREAMS = ['COE', 'COBS', 'COPC', 'ENC', 'EEC', 'ECE', 'MEE', 'CIE', 'CHE', 'BME', 'BT'];
 
 const getJoiningYear = (email: string) => {
@@ -59,6 +70,9 @@ const SectionHeader = ({ title, color }: { title: string, color: string }) => (
   </div>
 );
 
+// ==========================================
+// MAIN APP
+// ==========================================
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
@@ -72,21 +86,40 @@ export default function App() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
   
+  // --- CAROUSEL TOUR STATE ---
+  const [showTour, setShowTour] = useState(false); 
+  const [tourStep, setTourStep] = useState(0);
+
   const navigateTo = (tabName: string) => setActiveTab(tabName);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [notifsEnabled, setNotifsEnabled] = useState(true);
   
-  // FIX: Included all properties to avoid TS Object Literal errors
   const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', password: '', rollNumber: '', stream: '', batch: '', hostel: '' });
 
   const isAdmin = userDetails.role === 'super_admin' || userDetails.email === 'tejas1607.best@gmail.com';
 
+  // --- PWA HARDWARE BACK BUTTON ---
   useEffect(() => {
-    if (isAdmin && (activeTab === 'home' || activeTab === 'vault')) {
-      setActiveTab('daily');
-    }
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href);
+      if (showTour) {
+        if (tourStep > 0) setTourStep(s => s - 1);
+        else setShowTour(false);
+      }
+      else if (isEditingProfile) setIsEditingProfile(false);
+      else if (showSettings) setShowSettings(false);
+      else if (activeTab !== 'home' && !isAdmin) setActiveTab('home');
+      else if (activeTab !== 'daily' && isAdmin) setActiveTab('daily');
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activeTab, showSettings, isEditingProfile, isAdmin, showTour, tourStep]);
+
+  useEffect(() => {
+    if (isAdmin && (activeTab === 'home' || activeTab === 'vault')) setActiveTab('daily');
   }, [isAdmin, activeTab]);
 
   useEffect(() => {
@@ -127,6 +160,9 @@ export default function App() {
          hostel: res.data.hostel || ''
       }));
 
+      if (!localStorage.getItem('cf_tour_done') && res.data.role !== 'super_admin') {
+        setTimeout(() => setShowTour(true), 1500);
+      }
     } catch (err) { handleLogout(); }
   };
 
@@ -135,23 +171,11 @@ export default function App() {
     try {
       const res = await axios.put(`${API_HOST}/auth/me?token=${token}`, updates);
       setCurrentUserName(res.data.name);
-      
-      // FIX: Explicitly mapping backend fields back to frontend camelCase state closes the popup
       setUserDetails(prev => ({
-        ...prev,
-        name: res.data.name,
-        phone: res.data.phone || '',
-        batch: res.data.batch || '',
-        hostel: res.data.hostel || '',
-        rollNumber: res.data.roll_number || '',
-        stream: res.data.stream || '',
-        semester: res.data.semester || prev.semester
+        ...prev, name: res.data.name, phone: res.data.phone || '', batch: res.data.batch || '', hostel: res.data.hostel || '', rollNumber: res.data.roll_number || '', stream: res.data.stream || '', semester: res.data.semester || prev.semester
       }));
       return true;
-    } catch (err) {
-      console.error("Update failed", err);
-      return false;
-    }
+    } catch (err) { return false; }
   };
 
   const handleLoginSuccess = (token: string, userId: number, name: string) => {
@@ -168,7 +192,6 @@ export default function App() {
     setShowSettings(false); 
     setIsEditingProfile(false);
     setActiveTab('home');
-    
     setEditForm({ name: '', email: '', phone: '', password: '', rollNumber: '', stream: '', batch: '', hostel: '' });
     setUserDetails({ email: '', phone: '', batch: '', semester: 1, hostel: '', rollNumber: '', stream: '', role: '' });
   };
@@ -176,33 +199,22 @@ export default function App() {
   const handleSaveEditForm = async () => {
     if (!isAdmin) {
       if (!editForm.stream || !editForm.batch || !editForm.hostel || !editForm.rollNumber || !editForm.phone) {
-        alert("All fields are required to enter the grid.");
-        return;
+        alert("All fields are required to enter the grid."); return;
       }
       if (editForm.phone && editForm.phone.length !== 10) {
-        alert("Phone number must be exactly 10 digits.");
-        return;
+        alert("Phone number must be exactly 10 digits."); return;
       }
-      
       if (editForm.rollNumber !== 'N/A') {
         const requiredPrefix = getJoiningYear(userDetails.email) ? `10${getJoiningYear(userDetails.email)}` : '10';
         if (editForm.rollNumber.length !== 10 || !editForm.rollNumber.startsWith(requiredPrefix)) {
-          alert(`Roll number must be 10 digits and start with ${requiredPrefix} (or select Not Allotted)`);
-          return;
+          alert(`Roll number must be 10 digits and start with ${requiredPrefix} (or select Not Allotted)`); return;
         }
       }
     }
 
-    const updates: any = {
-      name: editForm.name, 
-      phone: editForm.phone,
-      batch: editForm.batch,
-      hostel: editForm.hostel,
-    };
-    
+    const updates: any = { name: editForm.name, phone: editForm.phone, batch: editForm.batch, hostel: editForm.hostel };
     if (!isAdmin) {
-      updates.roll_number = editForm.rollNumber;
-      updates.stream = editForm.stream;
+      updates.roll_number = editForm.rollNumber; updates.stream = editForm.stream;
       if (userDetails.role === 'guest') updates.semester = 1;
     }
 
@@ -217,33 +229,18 @@ export default function App() {
 
   const handleRollNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.toUpperCase();
-    if (val === 'N/A') {
-      setEditForm({ ...editForm, rollNumber: val });
-      return;
-    }
-    
+    if (val === 'N/A') { setEditForm({ ...editForm, rollNumber: val }); return; }
     val = val.replace(/\D/g, ''); 
     const yy = getJoiningYear(userDetails.email);
     const prefix = yy ? `10${yy}` : '10';
-
-    if (!val.startsWith(prefix) && val.length > 0) {
-      val = prefix; 
-    }
-    
+    if (!val.startsWith(prefix) && val.length > 0) val = prefix; 
     if (val.length <= 10) setEditForm({ ...editForm, rollNumber: val });
   };
 
   const openEditProfile = () => {
     const yy = getJoiningYear(userDetails.email);
     const defaultRoll = yy ? `10${yy}` : '';
-    
-    setEditForm({ 
-      ...userDetails, 
-      name: currentUserName, 
-      email: userDetails.email, 
-      password: '',
-      rollNumber: userDetails.rollNumber || defaultRoll 
-    });
+    setEditForm({ ...userDetails, name: currentUserName, email: userDetails.email, password: '', rollNumber: userDetails.rollNumber || defaultRoll });
     setIsEditingProfile(true);
   };
 
@@ -253,10 +250,15 @@ export default function App() {
       await axios.post(`${API_HOST}/auth/migrate?token=${token}`, { token: credentialResponse.credential });
       alert("Successfully linked! Reloading...");
       window.location.reload();
-    } catch (e: any) {
-      alert(e.response?.data?.detail || "Migration failed.");
-    }
+    } catch (e: any) { alert(e.response?.data?.detail || "Migration failed."); }
   };
+
+  const joinYear = getJoiningYear(userDetails.email);
+  const currentYear = new Date().getFullYear();
+  let studentYear = joinYear ? (currentYear - (2000 + joinYear)) : 1;
+  if (new Date().getMonth() >= 6) studentYear += 1;
+  studentYear = Math.max(1, Math.min(4, studentYear));
+  const availableBatches = isAdmin ? getThaparBatches(null) : getThaparBatches(studentYear);
 
   if (!isAuthenticated) {
     return (
@@ -266,7 +268,6 @@ export default function App() {
     );
   }
 
-  // --- THE MANDATORY ONBOARDING GATE (Admins Bypass) ---
   const needsSetup = !isAdmin && (!userDetails.phone || !userDetails.rollNumber || !userDetails.batch || !userDetails.stream || !userDetails.hostel);
 
   if (needsSetup) {
@@ -275,35 +276,28 @@ export default function App() {
         <div className="bg-slate-900 border-2 border-blue-500 rounded-2xl p-6 w-full max-w-sm">
           <h2 className="text-3xl font-black text-white uppercase tracking-widest mb-1">Complete Profile</h2>
           <p className="text-lg text-slate-400 mb-6">You must fill this out to enter the grid.</p>
-          
           <div className="space-y-4 mb-6">
             <input type="text" placeholder="Full Name" value={editForm.name || currentUserName} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded p-3 text-white text-xl font-bold font-caveat" />
-            
             <div className="relative w-full">
               <input type="text" placeholder="Roll Number (e.g. 1025...)" value={editForm.rollNumber} onChange={handleRollNumberChange} className="w-full bg-slate-950 border border-slate-700 rounded p-3 text-white text-xl font-bold font-caveat pr-24" />
               <button onClick={() => setEditForm({...editForm, rollNumber: 'N/A'})} className="absolute right-3 top-3.5 text-sm font-bold text-blue-400 bg-slate-900 px-2 rounded-md border border-blue-500/30">Not Allotted</button>
             </div>
-
             <input type="text" placeholder="Phone Number" value={editForm.phone} onChange={handlePhoneChange} className="w-full bg-slate-950 border border-slate-700 rounded p-3 text-white text-xl font-bold font-caveat" />
-            
             <select value={editForm.stream || userDetails.stream} onChange={e => setEditForm({...editForm, stream: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded p-3 text-white text-xl font-bold font-caveat">
               <option value="">Select Stream...</option>
               {THAPAR_STREAMS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            
             <select value={editForm.batch || userDetails.batch} onChange={e => setEditForm({...editForm, batch: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded p-3 text-white text-xl font-bold font-caveat">
               <option value="">Select Batch...</option>
               <option value="Unassigned">Not Allotted Yet</option>
-              {THAPAR_BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+              {availableBatches.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
-            
             <select value={editForm.hostel || userDetails.hostel} onChange={e => setEditForm({...editForm, hostel: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded p-3 text-white text-xl font-bold font-caveat">
               <option value="">Select Hostel...</option>
               <option value="Unassigned">Not Allotted Yet</option>
               {['Hostel A', 'Hostel B', 'Hostel C', 'Hostel D', 'Hostel E', 'Hostel F', 'Hostel G', 'Hostel H', 'Hostel I', 'Hostel J', 'Hostel K', 'Hostel L', 'Day Scholar'].map(h => <option key={h} value={h}>{h}</option>)}
             </select>
           </div>
-          
           <button onClick={handleSaveEditForm} className="w-full py-3 bg-blue-600 text-white text-2xl font-black tracking-widest uppercase rounded-xl hover:bg-blue-500">
             Finalize & Enter
           </button>
@@ -316,11 +310,111 @@ export default function App() {
     ? [ { id: 'daily', icon: BookOpen, label: 'DAILY' }, { id: 'bazaar', icon: ShoppingBag, label: 'BAZAAR' } ]
     : [ { id: 'home', icon: Home, label: 'HOME' }, { id: 'vault', icon: Wallet, label: 'VAULT' }, { id: 'daily', icon: BookOpen, label: 'DAILY' }, { id: 'bazaar', icon: ShoppingBag, label: 'BAZAAR' } ];
 
-  // FIX: Admin only sees Batch and Hostel in Settings
   const settingsFieldsToDisplay = isAdmin ? ['Batch', 'Hostel'] : ['Stream', 'Batch', 'Semester', 'Hostel'];
 
   return (
-    <div className="bg-slate-950 min-h-[100dvh] text-slate-100 font-caveat flex flex-col">       
+    <div className="bg-slate-950 min-h-[100dvh] text-slate-100 font-caveat flex flex-col relative">       
+      
+      {/* NATIVE SURVIVAL GUIDE CAROUSEL */}
+      <AnimatePresence>
+        {showTour && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 font-sans">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-slate-900 border-2 border-blue-500 rounded-2xl p-6 max-w-sm w-full shadow-[0_0_40px_rgba(59,130,246,0.2)] flex flex-col h-[550px]">
+              
+              <div className="flex justify-between items-center mb-6">
+                <span className="text-xs font-black text-blue-400 tracking-widest uppercase">Survival Guide {tourStep + 1}/4</span>
+                <button onClick={() => { setShowTour(false); localStorage.setItem('cf_tour_done', 'true'); }} className="text-slate-500 hover:text-white text-xs font-bold uppercase">Skip</button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto hide-scrollbar">
+                <AnimatePresence mode="wait">
+                  {tourStep === 0 && (
+                    <motion.div key="0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="text-center">
+                      <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-widest font-caveat">Welcome to<br/><span className="text-blue-500">CampusFLOW</span></h2>
+                      <p className="text-sm text-slate-400 mb-8">Your ultimate Thapar OS. The app is divided into 3 main pillars:</p>
+                      <div className="space-y-3 text-left">
+                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex gap-4 items-center">
+                          <BookOpen className="text-blue-400 shrink-0" size={28}/><div><h4 className="font-black text-white">Daily</h4><p className="text-xs text-slate-400">Classes, Menus, Comms & Acad Vault</p></div>
+                        </div>
+                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex gap-4 items-center">
+                          <Wallet className="text-purple-400 shrink-0" size={28}/><div><h4 className="font-black text-white">Vault</h4><p className="text-xs text-slate-400">Finance, Budgets, OCR & Bill Splits</p></div>
+                        </div>
+                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex gap-4 items-center opacity-50">
+                          <ShoppingBag className="text-green-400 shrink-0" size={28}/><div><h4 className="font-black text-white">Bazaar</h4><p className="text-xs text-slate-400">2nd Hand Store & Events (Coming Soon)</p></div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {tourStep === 1 && (
+                    <motion.div key="1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                      <h2 className="text-2xl font-black text-blue-400 mb-4 uppercase tracking-widest font-caveat flex items-center gap-2"><BookOpen/> The Daily Hub</h2>
+                      <div className="space-y-4">
+                        <div className="border-l-2 border-slate-700 pl-3">
+                          <h4 className="font-bold text-white text-sm">Class Tracker & Weekly Grid</h4>
+                          <p className="text-xs text-slate-400 leading-relaxed">View today's schedule. <strong className="text-blue-400">Click the top-right Date icon</strong> to view your entire weekly timetable and sync the AI.</p>
+                        </div>
+                        <div className="border-l-2 border-slate-700 pl-3">
+                          <h4 className="font-bold text-white text-sm">Bunk Meter</h4>
+                          <p className="text-xs text-slate-400 leading-relaxed">Track attendance securely. It tells you exactly how many classes you need to hit 75%, or how many you can safely bunk.</p>
+                        </div>
+                        <div className="border-l-2 border-slate-700 pl-3">
+                          <h4 className="font-bold text-white text-sm">Acad Vault</h4>
+                          <p className="text-xs text-slate-400 leading-relaxed">Click the floating folder icon at the bottom right to access structured PYQs and notes specific to your Year and Stream.</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {tourStep === 2 && (
+                    <motion.div key="2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                      <h2 className="text-2xl font-black text-purple-400 mb-4 uppercase tracking-widest font-caveat flex items-center gap-2"><Wallet/> The Vault</h2>
+                      <div className="space-y-4">
+                        <div className="border-l-2 border-slate-700 pl-3">
+                          <h4 className="font-bold text-white text-sm">AI Receipt Scanning</h4>
+                          <p className="text-xs text-slate-400 leading-relaxed">Click the <Camera size={12} className="inline"/> icon when adding an expense. Our AI will automatically read the amount, vendor, and category from your receipt.</p>
+                        </div>
+                        <div className="border-l-2 border-slate-700 pl-3">
+                          <h4 className="font-bold text-white text-sm">Split Bills Seamlessly</h4>
+                          <p className="text-xs text-slate-400 leading-relaxed">Search for a friend when logging an expense. The app calculates the split and automatically adds it to your mutual <strong className="text-purple-400">Debt Ledger</strong>.</p>
+                        </div>
+                        <div className="border-l-2 border-slate-700 pl-3">
+                          <h4 className="font-bold text-white text-sm">Burn Rate Averages</h4>
+                          <p className="text-xs text-slate-400 leading-relaxed">Set a monthly limit. The Vault calculates your "Needed Burn Rate" so you know exactly how much you can spend per day without going broke.</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {tourStep === 3 && (
+                    <motion.div key="3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="text-center pt-8">
+                      <ShieldAlert size={48} className="text-yellow-500 mx-auto mb-4" />
+                      <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-widest font-caveat">Community Rules</h2>
+                      <p className="text-sm text-slate-400 mb-6 leading-relaxed">
+                        CampusFLOW relies on crowdsourcing. If you upload fake Mess Menus or inappropriate resources, the community will flag it. <strong className="text-red-400">3 strikes and you lose upload privileges for a week.</strong>
+                      </p>
+                      <p className="text-sm font-bold text-blue-400">Click the gear icon anytime to update your Profile.</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="pt-4 mt-auto border-t border-slate-800 flex justify-between gap-3">
+                {tourStep > 0 ? (
+                  <button onClick={() => setTourStep(s => s - 1)} className="px-4 py-3 bg-slate-800 text-white rounded-xl font-bold uppercase tracking-wider text-xs flex items-center hover:bg-slate-700"><ChevronLeft size={16}/> Back</button>
+                ) : <div/>}
+                
+                {tourStep < 3 ? (
+                  <button onClick={() => setTourStep(s => s + 1)} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-black uppercase tracking-wider text-sm flex items-center gap-1 hover:bg-blue-500 shadow-[0_4px_15px_rgba(37,99,235,0.4)]">Next <ChevronRight size={18}/></button>
+                ) : (
+                  <button onClick={() => { setShowTour(false); localStorage.setItem('cf_tour_done', 'true'); }} className="flex-1 py-3 bg-green-500 text-white rounded-xl font-black uppercase tracking-wider text-sm hover:bg-green-400 shadow-[0_4px_15px_rgba(34,197,94,0.4)]">Enter the Grid</button>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <motion.header className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-4 sm:px-5 bg-slate-950/90 backdrop-blur-md z-50 border-b-2 border-slate-800 border-dashed">
         <span className="text-3xl font-black text-slate-100 tracking-tight">Campus<span className="text-blue-500">FLOW</span></span>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-12 h-12">
@@ -409,7 +503,7 @@ export default function App() {
                                  label === 'Batch' ? (
                                    <>
                                      <option value="Unassigned" className="bg-slate-900 text-white font-caveat text-xl">Not Allotted</option>
-                                     {THAPAR_BATCHES.map(b => <option key={b} value={b} className="bg-slate-900 text-white font-caveat text-xl">{b}</option>)}
+                                     {availableBatches.map(b => <option key={b} value={b} className="bg-slate-900 text-white font-caveat text-xl">{b}</option>)}
                                    </>
                                  ) : 
                                  label === 'Semester' ? [1,2,3,4,5,6,7,8].map(s => <option key={s} value={s} className="bg-slate-900 text-white font-caveat text-xl">Sem {s}</option>) :

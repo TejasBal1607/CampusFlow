@@ -2,7 +2,7 @@ import os
 import json
 import shutil
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 import base64
 
@@ -93,6 +93,18 @@ async def sync_timetable(
         raise HTTPException(status_code=400, detail="User batch not set.")
         
     img_data = await image.read()
+
+    cache = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
+    
+    if cache:
+        # Check if the last sync was within 24 hours
+        time_since_update = datetime.utcnow() - cache.updated_at
+        if time_since_update < timedelta(hours=24):
+            hours_left = 24 - (time_since_update.total_seconds() / 3600)
+            raise HTTPException(
+                status_code=429, 
+                detail=f"Timetable for {batch} was already synced recently. Please wait {hours_left:.1f} hours before syncing again."
+            )
     
     try:
         # 1. Initialize the new Client (ensure this is using the new google.genai)
@@ -341,3 +353,34 @@ async def upload_mess_menu(
     except Exception as e:
         print(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail="Failed to process image.")
+    
+
+from datetime import datetime, timedelta
+
+@router.post("/mess-menu/{menu_id}/report")
+def report_mess_menu(menu_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    menu = db.query(models.MessMenu).filter(models.MessMenu.id == menu_id).first()
+    if not menu:
+        raise HTTPException(status_code=404, detail="Menu not found.")
+        
+    # Safely initialize if the column is null
+    if menu.report_count is None:
+        menu.report_count = 0
+        
+    menu.report_count += 1
+    
+    if menu.report_count >= 3:
+        # Safely try to find the uploader_id or user_id depending on your model schema
+        owner_id = getattr(menu, 'uploader_id', getattr(menu, 'user_id', None))
+        
+        if owner_id:
+            uploader = db.query(models.User).filter(models.User.id == owner_id).first()
+            if uploader:
+                uploader.banned_until = datetime.utcnow() + timedelta(days=7)
+        
+        db.delete(menu)
+        db.commit()
+        return {"message": "Menu received 3 strikes and was automatically removed. The uploader has been banned."}
+        
+    db.commit()
+    return {"message": f"Menu reported successfully. Current strikes: {menu.report_count}/3"}

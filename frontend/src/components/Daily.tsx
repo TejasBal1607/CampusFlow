@@ -31,7 +31,7 @@ export default function Daily() {
   const [weekSchedule, setWeekSchedule] = useState<any[]>([]);
   const syncInputRef = useRef<HTMLInputElement>(null);
   
-  const [messMenuData, setMessMenuData] = useState<{url: string, uploader: string, time: string} | null>(null);
+  const [messMenuData, setMessMenuData] = useState<{id: number, url: string, uploader: string, time: string} | null>(null);
   const [showMenuViewer, setShowMenuViewer] = useState(false);
   const [isUploadingMenu, setIsUploadingMenu] = useState(false);
   const menuFileInputRef = useRef<HTMLInputElement>(null);
@@ -111,6 +111,7 @@ export default function Daily() {
             const finalUrl = rawUrl.startsWith('data:') ? rawUrl : `${API_HOST}${rawUrl}`;
             
             setMessMenuData({
+              id: menuRes.data.id,
               url: finalUrl,
               uploader: menuRes.data.uploader_name,
               time: new Date(menuRes.data.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -161,6 +162,7 @@ export default function Daily() {
     try {
       const res = await axios.post(`${API_HOST}/daily/mess-menu?token=${token}`, formData);
       setMessMenuData({
+        id: res.data.id, // <-- CHANGED from menuRes to res
         url: res.data.image_url, 
         uploader: res.data.uploader_name,
         time: 'Just now'
@@ -625,7 +627,20 @@ export default function Daily() {
               </motion.div>
 
               <div className="w-full max-w-lg mt-6 flex gap-3">
-                <button onClick={() => alert("Report sent to moderators.")} className="py-4 px-6 font-black bg-slate-900 text-red-500 border-2 border-slate-800 rounded-xl flex items-center justify-center hover:bg-slate-800 transition-colors">
+                <button 
+                  onClick={async () => {
+                    try {
+                      // Call the new 3-Strike Route
+                      const res = await axios.post(`${API_HOST}/daily/mess-menu/${messMenuData.id}/report?token=${token}`);
+                      alert(res.data.message);
+                      setShowMenuViewer(false);
+                      fetchDailyData(); // Refresh to see if it got deleted
+                    } catch (e: any) {
+                      alert("Failed to report menu.");
+                    }
+                  }} 
+                  className="py-4 px-6 font-black bg-slate-900 text-red-500 border-2 border-slate-800 rounded-xl flex items-center justify-center hover:bg-slate-800 transition-colors"
+                >
                   <Flag size={20}/>
                 </button>
                 <button onClick={() => { 
