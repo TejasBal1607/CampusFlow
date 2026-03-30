@@ -19,7 +19,6 @@ from app import models
 from app.database import get_db
 from app.routers.auth import get_current_user
 
-# Configure Gemini
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY", "YOUR_API_KEY_HERE"))
 
 router = APIRouter(prefix="/daily", tags=["Daily HUD"])
@@ -49,7 +48,7 @@ class BunkSubjectCreate(BaseModel):
     subject: str
 
 class BunkAction(BaseModel):
-    action: str # 'attend', 'bunk', 'cancel', 'reset'
+    action: str
 
 class BunkTrackOut(BaseModel):
     id: int
@@ -73,13 +72,11 @@ async def get_timetable(db: Session = Depends(get_db), current_user: models.User
     if not batch:
         raise HTTPException(status_code=400, detail="User batch not set.")
 
-    # Check Database Cache
     cached_schedule = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
     
     if cached_schedule and cached_schedule.schedule_data:
         return cached_schedule.schedule_data
 
-    # If it's not in the database, return a 404 to tell React to show the "Upload" button
     raise HTTPException(status_code=404, detail="Timetable not synced yet.")
 
 @router.post("/timetable/sync")
@@ -97,8 +94,8 @@ async def sync_timetable(
     cache = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
     
     if cache:
-        # Check if the last sync was within 24 hours
-        time_since_update = datetime.utcnow() - cache.updated_at
+        db_time = cache.updated_at.replace(tzinfo=None)
+        time_since_update = datetime.utcnow() - db_time
         if time_since_update < timedelta(hours=24):
             hours_left = 24 - (time_since_update.total_seconds() / 3600)
             raise HTTPException(
@@ -107,11 +104,8 @@ async def sync_timetable(
             )
     
     try:
-        # 1. Initialize the new Client (ensure this is using the new google.genai)
-        # Note: You can also move the client initialization to the top of the file
         client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         
-        # 2. Updated Prompt
         prompt = """
         STEP 1: Verify if this image is a college class timetable. 
         If it is NOT a timetable, return exactly: {"error": "not_a_timetable"}
@@ -126,7 +120,6 @@ async def sync_timetable(
         Return ONLY valid JSON.
         """
         
-        # 3. Use the new response syntax
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
@@ -138,7 +131,6 @@ async def sync_timetable(
         raw_text = response.text.strip().replace('```json', '').replace('```', '')
         structured_data = json.loads(raw_text)
         
-        # --- THE AI NORMALIZER ---
         if isinstance(structured_data, list):
             for day in structured_data:
                 for c in day.get('classes', []):
@@ -147,7 +139,6 @@ async def sync_timetable(
                     if c.get('type') == 'Practical':
                         c['type'] = 'Lab'
 
-        # --- SANITY CHECK ---
         if isinstance(structured_data, dict) and structured_data.get("error") == "not_a_timetable":
             raise HTTPException(status_code=400, detail="Nice try, but that's not a timetable. Upload the real deal!")
 
@@ -155,7 +146,6 @@ async def sync_timetable(
         if len(all_classes) < 3:
             raise HTTPException(status_code=400, detail="This timetable looks empty or invalid.")
         
-        # --- DB CACHE LOGIC ---
         existing_cache = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
         if existing_cache:
             existing_cache.schedule_data = structured_data
@@ -168,6 +158,7 @@ async def sync_timetable(
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="The AI got confused. Try a clearer screenshot.")
     except Exception as e:
+        db.rollback()
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -180,7 +171,6 @@ def create_broadcast(
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
-    # SECURITY: Only your specific email can broadcast
     if current_user.email != "tejas1607.best@gmail.com":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
@@ -207,12 +197,10 @@ def get_comms(
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
-    # Calculate user's year for targeting (e.g. 2025)
     import re
     match = re.search(r'_be(\d{2})@thapar\.edu', current_user.email)
     user_year = int("20" + match.group(1)) if match else None
 
-    # Fetch broadcasts that are either Global (all targets null) OR match the user's specific identity
     comms = db.query(models.Broadcast).filter(
         and_(
             or_(models.Broadcast.target_batch == None, models.Broadcast.target_batch == current_user.batch),
@@ -223,7 +211,6 @@ def get_comms(
     ).order_by(models.Broadcast.created_at.desc()).limit(20).all()
     
     return comms
-
 
 @router.delete("/comms/{comm_id}")
 def delete_broadcast(comm_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -260,6 +247,36 @@ def add_bunk_subject(payload: BunkSubjectCreate, db: Session = Depends(get_db), 
     db.refresh(new_tracker)
     return new_tracker
 
+
+@router.delete("/bunk/reset")
+def reset_bunk_meter(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.role == "guest":
+        raise HTTPException(status_code=403, detail="Guests cannot reset bunk data.")
+        
+    db.query(models.BunkTrack).filter(models.BunkTrack.user_id == current_user.id).delete()
+    db.commit()
+    return {"message": "Bunk meter wiped clean."}
+
+
+# FIX: MOVED THIS UP SO IT CATCHES BEFORE THE DYNAMIC ID ROUTE
+@router.put("/bunk/{track_id}/manual")
+def update_bunk_manual(
+    track_id: int, 
+    data: BunkManualUpdate, 
+    db: Session = Depends(get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
+    tracker = db.query(models.BunkTrack).filter(models.BunkTrack.id == track_id, models.BunkTrack.user_id == current_user.id).first()
+    if not tracker:
+        raise HTTPException(status_code=404, detail="Tracker not found")
+        
+    tracker.attended = data.attended
+    tracker.bunked = data.bunked
+    db.commit()
+    db.refresh(tracker)
+    return tracker
+
+
 @router.put("/bunk/{track_id}")
 def update_bunk_stat(track_id: int, action_data: BunkAction, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tracker = db.query(models.BunkTrack).filter(models.BunkTrack.id == track_id, models.BunkTrack.user_id == current_user.id).first()
@@ -278,23 +295,6 @@ def update_bunk_stat(track_id: int, action_data: BunkAction, db: Session = Depen
     db.refresh(tracker)
     return tracker
 
-@router.put("/bunk/{track_id}/manual")
-def update_bunk_manual(
-    track_id: int, 
-    data: BunkManualUpdate, 
-    db: Session = Depends(get_db), 
-    current_user: models.User = Depends(get_current_user)
-):
-    tracker = db.query(models.BunkTrack).filter(models.BunkTrack.id == track_id, models.BunkTrack.user_id == current_user.id).first()
-    if not tracker:
-        raise HTTPException(status_code=404, detail="Tracker not found")
-        
-    tracker.attended = data.attended
-    tracker.bunked = data.bunked
-    db.commit()
-    db.refresh(tracker)
-    return tracker
-
 @router.delete("/bunk/{track_id}")
 def delete_bunk_subject(track_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     tracker = db.query(models.BunkTrack).filter(models.BunkTrack.id == track_id, models.BunkTrack.user_id == current_user.id).first()
@@ -307,7 +307,6 @@ def delete_bunk_subject(track_id: int, db: Session = Depends(get_db), current_us
 # ==========================================
 # MESS MENU ROUTES
 # ==========================================
-
 @router.get("/mess-menu")
 def get_mess_menu(hostel: str, db: Session = Depends(get_db)):
     menu = db.query(models.MessMenu).filter(models.MessMenu.hostel == hostel).first()
@@ -315,6 +314,7 @@ def get_mess_menu(hostel: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No menu uploaded yet")
         
     return {
+        "id": menu.id,
         "image_url": menu.image_url,
         "uploader_name": menu.uploader.name if menu.uploader else "Unknown",
         "updated_at": menu.updated_at
@@ -328,25 +328,27 @@ async def upload_mess_menu(
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        # FAST & EASY FIX: Convert the image to a Base64 string
         img_data = await image.read()
         base64_encoded = base64.b64encode(img_data).decode("utf-8")
-        
-        # Create a Data URI that React can use directly in the <img src="..." />
         mime_type = image.content_type
         image_url = f"data:{mime_type};base64,{base64_encoded}"
 
-        # Save this giant string directly into the database!
         menu = db.query(models.MessMenu).filter(models.MessMenu.hostel == hostel).first()
         if menu:
             menu.image_url = image_url
             menu.uploader_id = current_user.id
+            menu.report_count = 0  # Reset reports on new upload
+            if hasattr(menu, 'reporters'):
+                menu.reporters = ""
         else:
             menu = models.MessMenu(hostel=hostel, image_url=image_url, uploader_id=current_user.id)
             db.add(menu)
             
         db.commit()
+        db.refresh(menu)
+        
         return {
+            "id": menu.id,
             "image_url": image_url,
             "uploader_name": current_user.name
         }
@@ -354,33 +356,44 @@ async def upload_mess_menu(
         print(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail="Failed to process image.")
     
-
-from datetime import datetime, timedelta
-
 @router.post("/mess-menu/{menu_id}/report")
 def report_mess_menu(menu_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     menu = db.query(models.MessMenu).filter(models.MessMenu.id == menu_id).first()
     if not menu:
         raise HTTPException(status_code=404, detail="Menu not found.")
         
-    # Safely initialize if the column is null
+    # --- GOAL 2: Admin Immunity ---
+    owner_id = getattr(menu, 'uploader_id', getattr(menu, 'user_id', None))
+    owner = None
+    if owner_id:
+        owner = db.query(models.User).filter(models.User.id == owner_id).first()
+        if owner and owner.role == "super_admin":
+            raise HTTPException(status_code=403, detail="You cannot report an official Admin menu.")
+
+    # --- GOAL 1: Prevent Duplicate Spam ---
+    reporters = []
+    if hasattr(menu, 'reporters') and menu.reporters:
+        reporters = menu.reporters.split(",")
+        
+    if str(current_user.id) in reporters:
+        raise HTTPException(status_code=400, detail="You have already flagged this menu. The community will review it.")
+        
     if menu.report_count is None:
         menu.report_count = 0
         
     menu.report_count += 1
+    reporters.append(str(current_user.id))
+    
+    if hasattr(menu, 'reporters'):
+        menu.reporters = ",".join(reporters)
     
     if menu.report_count >= 3:
-        # Safely try to find the uploader_id or user_id depending on your model schema
-        owner_id = getattr(menu, 'uploader_id', getattr(menu, 'user_id', None))
-        
-        if owner_id:
-            uploader = db.query(models.User).filter(models.User.id == owner_id).first()
-            if uploader:
-                uploader.banned_until = datetime.utcnow() + timedelta(days=7)
-        
+        if owner and owner.role != "super_admin":
+            owner.banned_until = datetime.utcnow() + timedelta(days=7)
+            
         db.delete(menu)
         db.commit()
         return {"message": "Menu received 3 strikes and was automatically removed. The uploader has been banned."}
         
     db.commit()
-    return {"message": f"Menu reported successfully. Current strikes: {menu.report_count}/3"}
+    return {"message": f"Menu flagged successfully. Current strikes: {menu.report_count}/3"}

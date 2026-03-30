@@ -66,7 +66,8 @@ def get_all_users(
             models.User.phone.ilike(f"%{query}%"),
             models.User.name.ilike(f"%{query}%")
         ),
-        models.User.id != current_user.id 
+        models.User.id != current_user.id,
+        models.User.role != "super_admin"
     ).limit(5).all()
     
     return results

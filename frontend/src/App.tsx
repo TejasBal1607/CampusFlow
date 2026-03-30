@@ -4,16 +4,16 @@ import Vault from './components/Vault';
 import Auth from './components/Auth';
 import Daily from './components/Daily';
 import AdminDashboard from './components/Admin';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Home, Wallet, BookOpen, ShoppingBag, Settings, RefreshCw, Edit3, ArrowLeft, CheckCircle2, ChevronRight, ChevronLeft, ShieldAlert, FileText, Camera } from 'lucide-react';
+import { Lock, Home, Wallet, BookOpen, ShoppingBag, Settings, RefreshCw, Edit3, ArrowLeft, CheckCircle2, HelpCircle } from 'lucide-react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
+
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
-// ==========================================
-// THAPAR CUSTOM BATCH ENGINE
-// ==========================================
 const BATCH_CONFIG: any = {
   1: { A: ['11-19','21-28','31-38','41-45','51-55','61-65','71-75','81-85','91-95'], B: ['11-18','21-28','31-38','41-45','51-55','61-65','71-75','81-85','91-95'], X: ['11-14','21-24'], G: ['11-14'], J: ['11'], R: ['11-13'] },
   2: { E: ['11-12'], D: ['11-13'], S: ['11-15'], H: ['11-13','21-23'], W: ['11-14'], I: ['11-13'], A: ['11-12'], G: ['11-14'], J: ['11-12'], U: ['11'], B: ['11-13'], R: ['11-13'], F: ['11-14','21-23','31-33'], V: ['11-13'], O: ['11-14','21-24','31-34'], X: ['11-15'], Q: ['11-15','21-25','31-35','41'], C: ['11-18','21-25','31-35','41-45','51-55','61-65','71-75','81-82'] },
@@ -70,9 +70,18 @@ const SectionHeader = ({ title, color }: { title: string, color: string }) => (
   </div>
 );
 
-// ==========================================
-// MAIN APP
-// ==========================================
+// FIX: Added ': any' to completely bypass the driver.js strict type checking errors
+const createStep = (selector: string, title: string, description: string, side: string = "top"): any => ({
+  element: selector,
+  popover: { title, description, side, align: 'center' },
+  onHighlightStarted: () => {
+    const el = document.querySelector(selector);
+    if (el) {
+      el.scrollIntoView({ behavior: 'instant', block: 'center' });
+    }
+  }
+});
+
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
@@ -85,11 +94,9 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
+  const [pendingTour, setPendingTour] = useState(false);
+  const tourLocked = useRef(false);
   
-  // --- CAROUSEL TOUR STATE ---
-  const [showTour, setShowTour] = useState(false); 
-  const [tourStep, setTourStep] = useState(0);
-
   const navigateTo = (tabName: string) => setActiveTab(tabName);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -99,24 +106,123 @@ export default function App() {
   const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', password: '', rollNumber: '', stream: '', batch: '', hostel: '' });
 
   const isAdmin = userDetails.role === 'super_admin' || userDetails.email === 'tejas1607.best@gmail.com';
+  
+  const needsSetup = !isAdmin && (!userDetails.phone || !userDetails.rollNumber || !userDetails.batch || !userDetails.stream || !userDetails.hostel);
 
-  // --- PWA HARDWARE BACK BUTTON ---
+  const startTour = () => {
+    setActiveTab('home'); 
+    window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'overview' }));
+    window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'none' }));
+
+    setTimeout(() => {
+      const driverObj = driver({
+        showProgress: true,
+        animate: true,
+        allowClose: false,
+        popoverClass: 'driverjs-theme',
+        onNextClick: (element, step) => {
+          const title = step.popover?.title;
+
+          if (title === 'Your Identity') {
+            setActiveTab('vault');
+            window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'overview' }));
+            setTimeout(() => driverObj.moveNext(), 600);
+          } else if (title === 'Export Data') {
+            window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'expenses' }));
+            setTimeout(() => driverObj.moveNext(), 600);
+          } else if (title === 'Add Expense') {
+            window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'expense' }));
+            setTimeout(() => driverObj.moveNext(), 600);
+          } else if (title === 'Recurring Subscriptions') {
+            window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'none' }));
+            window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'overview' }));
+            setActiveTab('daily');
+            setTimeout(() => driverObj.moveNext(), 600);
+          } else if (title === 'Acad Vault') {
+            setActiveTab('bazaar');
+            setTimeout(() => driverObj.moveNext(), 600);
+          } else if (title === 'Coming Soon') {
+            setActiveTab('home');
+            setTimeout(() => driverObj.moveNext(), 600);
+          } else {
+            driverObj.moveNext();
+          }
+        },
+        steps: [
+          { popover: { title: 'Welcome to CampusFLOW', description: 'Your campus OS is ready. Let us take a quick tour of your new grid.', align: 'center' } },
+          createStep('.tour-home-widgets', 'At a Glance', 'Your quick overview. See your immediate balances and recent grid activity right here.', 'bottom'),
+          createStep('.tour-settings', 'Your Identity', 'Click the gear to update your batch, hostel, stream, and alerts.', 'left'),
+          
+          createStep('.tour-vault-nav', 'The Vault', 'Your financial safe and academic database.', 'top'),
+          createStep('.tour-vault-exp', 'Expenses', 'Track what you have spent this month.', 'bottom'),
+          createStep('.tour-vault-net', 'Net Cash In', 'Your total budget and incomes combined.', 'bottom'),
+          createStep('.tour-vault-sav', 'Savings', 'Money locked away in your Vault Cache.', 'bottom'),
+          createStep('.tour-vault-avail', 'Available Cash', 'What you can safely spend right now.', 'bottom'),
+          createStep('.tour-vault-budget', 'Set Monthly Budget', 'Click the Edit icon to set your spending limit for the month.', 'top'),
+          createStep('.tour-vault-ledger', 'Debt Ledger', 'Keep track of who owes you, and who you owe. No more lost money.', 'top'),
+          createStep('.tour-vault-avg', 'Burn Rate Averages', 'We calculate your "Needed Burn Rate" based on days left, so you know your exact daily allowance.', 'top'),
+          createStep('.tour-vault-alloc', 'Resource Allocation', 'A visual breakdown of where your money is actually going.', 'top'),
+          createStep('.tour-vault-export', 'Export Data', 'Generate a clean PDF report of your entire transaction history and ledger.', 'top'),
+
+          createStep('.tour-vault-log', 'Expense Logs', 'Here is your detailed history. You can click on any entry to edit or delete it.', 'top'),
+          createStep('.tour-vault-add', 'Add Expense', 'Click the + button to log a new expense.', 'left'),
+          createStep('.tour-vault-modal', 'Expense Editor', 'Fill in the details manually, or use our smart tools.', 'top'),
+          createStep('.tour-vault-ocr', 'AI Receipt Scanner', 'Click the Camera icon to scan a receipt. Our AI instantly extracts the Amount, Vendor, and Category!', 'bottom'),
+          createStep('.tour-vault-split', 'Split Bills', 'Ate with friends? Click Split, search their name, and we will automatically add it to your mutual Debt Ledgers.', 'top'),
+          createStep('.tour-vault-repeat', 'Recurring Subscriptions', 'Click Monthly for Spotify, Netflix, or Gym fees, and we will log it automatically every month.', 'top'),
+
+          createStep('.tour-daily-nav', 'The Daily Hub', 'Everything you need for campus life today.', 'top'),
+          createStep('.tour-class-tracker', 'Live Class Tracker', 'Watch the minutes tick down for your active class, and mark attendance instantly.', 'bottom'),
+          createStep('.tour-weekly-tt', 'Weekly Timetable', 'Click the Date to view your full weekly schedule. You can sync the AI here if your batch timetable is missing!', 'bottom'),
+          createStep('.tour-mess-menu', 'Mess Menu', 'Today\'s menu for your hostel. If it is empty, snap a picture to upload it for everyone.', 'bottom'),
+          createStep('.tour-bunk-meter', 'The Bunk Meter', 'Add your subjects. We calculate exactly how many classes you need to hit 75%, or how many you can safely bunk.', 'top'),
+          createStep('.tour-comms', 'Comms Radar', 'Targeted broadcasts. You will only see alerts meant for your specific batch, stream, or hostel.', 'top'),
+          createStep('.tour-acad-vault', 'Acad Vault', 'Access structured PYQs, notes, and study material specific to your Year and Stream.', 'left'),
+
+          createStep('.tour-bazaar-nav', 'The Bazaar', 'Your campus marketplace and event hub.', 'top'),
+          createStep('.tour-bazaar-content', 'Coming Soon', 'Buy/Sell 2nd hand items safely, use the Thapar Navigator, and discover campus events here soon!', 'top'),
+
+          { popover: { title: 'Community Rules', description: 'CampusFLOW relies on crowdsourcing. If you upload fake Mess Menus or inappropriate resources, the community will flag it. 3 strikes and you lose upload privileges for a week. Play nice, and enjoy the grid!', align: 'center' } },
+        ],
+        onDestroyed: () => {
+          window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'none' }));
+          window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'overview' }));
+        }
+      });
+      driverObj.drive();
+    }, 400); 
+  };
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+
+    const isTourDone = localStorage.getItem('cf_tour_done') === 'true';
+
+    if (pendingTour && !needsSetup && isAuthenticated && !tourLocked.current && !isTourDone) {
+      tourLocked.current = true;
+      localStorage.setItem('cf_tour_done', 'true'); 
+      
+      timer = setTimeout(() => {
+        startTour();
+        setPendingTour(false);
+      }, 800);
+    }
+
+    return () => clearTimeout(timer);
+  }, [pendingTour, needsSetup, isAuthenticated]);
+
   useEffect(() => {
     window.history.pushState(null, '', window.location.href);
     const handlePopState = () => {
       window.history.pushState(null, '', window.location.href);
-      if (showTour) {
-        if (tourStep > 0) setTourStep(s => s - 1);
-        else setShowTour(false);
-      }
-      else if (isEditingProfile) setIsEditingProfile(false);
+      if (isEditingProfile) setIsEditingProfile(false);
       else if (showSettings) setShowSettings(false);
       else if (activeTab !== 'home' && !isAdmin) setActiveTab('home');
       else if (activeTab !== 'daily' && isAdmin) setActiveTab('daily');
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [activeTab, showSettings, isEditingProfile, isAdmin, showTour, tourStep]);
+  }, [activeTab, showSettings, isEditingProfile, isAdmin]);
 
   useEffect(() => {
     if (isAdmin && (activeTab === 'home' || activeTab === 'vault')) setActiveTab('daily');
@@ -151,19 +257,16 @@ export default function App() {
       });
 
       setEditForm(prev => ({
-         ...prev,
-         name: res.data.name,
-         phone: res.data.phone || '',
-         rollNumber: res.data.roll_number || '',
-         stream: res.data.stream || '',
-         batch: res.data.batch || '',
-         hostel: res.data.hostel || ''
+         ...prev, name: res.data.name, phone: res.data.phone || '', rollNumber: res.data.roll_number || '', stream: res.data.stream || '', batch: res.data.batch || '', hostel: res.data.hostel || ''
       }));
 
-      if (!localStorage.getItem('cf_tour_done') && res.data.role !== 'super_admin') {
-        setTimeout(() => setShowTour(true), 1500);
+      if (localStorage.getItem('cf_tour_done') !== 'true' && res.data.role !== 'super_admin') {
+        setPendingTour(true); 
       }
-    } catch (err) { handleLogout(); }
+    } catch (err: any) { 
+      if (err.response?.status === 403) alert(err.response.data.detail);
+      handleLogout(); 
+    }
   };
 
   const updateProfile = async (updates: any) => {
@@ -171,8 +274,9 @@ export default function App() {
     try {
       const res = await axios.put(`${API_HOST}/auth/me?token=${token}`, updates);
       setCurrentUserName(res.data.name);
+      const autoSem = calculateSemester(res.data.email);
       setUserDetails(prev => ({
-        ...prev, name: res.data.name, phone: res.data.phone || '', batch: res.data.batch || '', hostel: res.data.hostel || '', rollNumber: res.data.roll_number || '', stream: res.data.stream || '', semester: res.data.semester || prev.semester
+        ...prev, name: res.data.name, phone: res.data.phone || '', batch: res.data.batch || '', hostel: res.data.hostel || '', rollNumber: res.data.roll_number || '', stream: res.data.stream || '', semester: res.data.role === 'guest' ? 1 : autoSem
       }));
       return true;
     } catch (err) { return false; }
@@ -186,7 +290,9 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    localStorage.removeItem('cf_token');
+    localStorage.removeItem('cf_name');
+    
     setIsAuthenticated(false);
     setCurrentUserId(null);
     setShowSettings(false); 
@@ -268,8 +374,6 @@ export default function App() {
     );
   }
 
-  const needsSetup = !isAdmin && (!userDetails.phone || !userDetails.rollNumber || !userDetails.batch || !userDetails.stream || !userDetails.hostel);
-
   if (needsSetup) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-caveat">
@@ -315,129 +419,46 @@ export default function App() {
   return (
     <div className="bg-slate-950 min-h-[100dvh] text-slate-100 font-caveat flex flex-col relative">       
       
-      {/* NATIVE SURVIVAL GUIDE CAROUSEL */}
-      <AnimatePresence>
-        {showTour && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 font-sans">
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-slate-900 border-2 border-blue-500 rounded-2xl p-6 max-w-sm w-full shadow-[0_0_40px_rgba(59,130,246,0.2)] flex flex-col h-[550px]">
-              
-              <div className="flex justify-between items-center mb-6">
-                <span className="text-xs font-black text-blue-400 tracking-widest uppercase">Survival Guide {tourStep + 1}/4</span>
-                <button onClick={() => { setShowTour(false); localStorage.setItem('cf_tour_done', 'true'); }} className="text-slate-500 hover:text-white text-xs font-bold uppercase">Skip</button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto hide-scrollbar">
-                <AnimatePresence mode="wait">
-                  {tourStep === 0 && (
-                    <motion.div key="0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="text-center">
-                      <h2 className="text-3xl font-black text-white mb-2 uppercase tracking-widest font-caveat">Welcome to<br/><span className="text-blue-500">CampusFLOW</span></h2>
-                      <p className="text-sm text-slate-400 mb-8">Your ultimate Thapar OS. The app is divided into 3 main pillars:</p>
-                      <div className="space-y-3 text-left">
-                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex gap-4 items-center">
-                          <BookOpen className="text-blue-400 shrink-0" size={28}/><div><h4 className="font-black text-white">Daily</h4><p className="text-xs text-slate-400">Classes, Menus, Comms & Acad Vault</p></div>
-                        </div>
-                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex gap-4 items-center">
-                          <Wallet className="text-purple-400 shrink-0" size={28}/><div><h4 className="font-black text-white">Vault</h4><p className="text-xs text-slate-400">Finance, Budgets, OCR & Bill Splits</p></div>
-                        </div>
-                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex gap-4 items-center opacity-50">
-                          <ShoppingBag className="text-green-400 shrink-0" size={28}/><div><h4 className="font-black text-white">Bazaar</h4><p className="text-xs text-slate-400">2nd Hand Store & Events (Coming Soon)</p></div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {tourStep === 1 && (
-                    <motion.div key="1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                      <h2 className="text-2xl font-black text-blue-400 mb-4 uppercase tracking-widest font-caveat flex items-center gap-2"><BookOpen/> The Daily Hub</h2>
-                      <div className="space-y-4">
-                        <div className="border-l-2 border-slate-700 pl-3">
-                          <h4 className="font-bold text-white text-sm">Class Tracker & Weekly Grid</h4>
-                          <p className="text-xs text-slate-400 leading-relaxed">View today's schedule. <strong className="text-blue-400">Click the top-right Date icon</strong> to view your entire weekly timetable and sync the AI.</p>
-                        </div>
-                        <div className="border-l-2 border-slate-700 pl-3">
-                          <h4 className="font-bold text-white text-sm">Bunk Meter</h4>
-                          <p className="text-xs text-slate-400 leading-relaxed">Track attendance securely. It tells you exactly how many classes you need to hit 75%, or how many you can safely bunk.</p>
-                        </div>
-                        <div className="border-l-2 border-slate-700 pl-3">
-                          <h4 className="font-bold text-white text-sm">Acad Vault</h4>
-                          <p className="text-xs text-slate-400 leading-relaxed">Click the floating folder icon at the bottom right to access structured PYQs and notes specific to your Year and Stream.</p>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {tourStep === 2 && (
-                    <motion.div key="2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                      <h2 className="text-2xl font-black text-purple-400 mb-4 uppercase tracking-widest font-caveat flex items-center gap-2"><Wallet/> The Vault</h2>
-                      <div className="space-y-4">
-                        <div className="border-l-2 border-slate-700 pl-3">
-                          <h4 className="font-bold text-white text-sm">AI Receipt Scanning</h4>
-                          <p className="text-xs text-slate-400 leading-relaxed">Click the <Camera size={12} className="inline"/> icon when adding an expense. Our AI will automatically read the amount, vendor, and category from your receipt.</p>
-                        </div>
-                        <div className="border-l-2 border-slate-700 pl-3">
-                          <h4 className="font-bold text-white text-sm">Split Bills Seamlessly</h4>
-                          <p className="text-xs text-slate-400 leading-relaxed">Search for a friend when logging an expense. The app calculates the split and automatically adds it to your mutual <strong className="text-purple-400">Debt Ledger</strong>.</p>
-                        </div>
-                        <div className="border-l-2 border-slate-700 pl-3">
-                          <h4 className="font-bold text-white text-sm">Burn Rate Averages</h4>
-                          <p className="text-xs text-slate-400 leading-relaxed">Set a monthly limit. The Vault calculates your "Needed Burn Rate" so you know exactly how much you can spend per day without going broke.</p>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {tourStep === 3 && (
-                    <motion.div key="3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="text-center pt-8">
-                      <ShieldAlert size={48} className="text-yellow-500 mx-auto mb-4" />
-                      <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-widest font-caveat">Community Rules</h2>
-                      <p className="text-sm text-slate-400 mb-6 leading-relaxed">
-                        CampusFLOW relies on crowdsourcing. If you upload fake Mess Menus or inappropriate resources, the community will flag it. <strong className="text-red-400">3 strikes and you lose upload privileges for a week.</strong>
-                      </p>
-                      <p className="text-sm font-bold text-blue-400">Click the gear icon anytime to update your Profile.</p>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <div className="pt-4 mt-auto border-t border-slate-800 flex justify-between gap-3">
-                {tourStep > 0 ? (
-                  <button onClick={() => setTourStep(s => s - 1)} className="px-4 py-3 bg-slate-800 text-white rounded-xl font-bold uppercase tracking-wider text-xs flex items-center hover:bg-slate-700"><ChevronLeft size={16}/> Back</button>
-                ) : <div/>}
-                
-                {tourStep < 3 ? (
-                  <button onClick={() => setTourStep(s => s + 1)} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-black uppercase tracking-wider text-sm flex items-center gap-1 hover:bg-blue-500 shadow-[0_4px_15px_rgba(37,99,235,0.4)]">Next <ChevronRight size={18}/></button>
-                ) : (
-                  <button onClick={() => { setShowTour(false); localStorage.setItem('cf_tour_done', 'true'); }} className="flex-1 py-3 bg-green-500 text-white rounded-xl font-black uppercase tracking-wider text-sm hover:bg-green-400 shadow-[0_4px_15px_rgba(34,197,94,0.4)]">Enter the Grid</button>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <style dangerouslySetInnerHTML={{__html: `
+        .driverjs-theme {
+          background-color: #0f172a;
+          color: #f8fafc;
+          border: 2px solid #3b82f6;
+          border-radius: 12px;
+          font-family: ui-sans-serif, system-ui, -apple-system;
+        }
+        .driver-popover-title { color: #3b82f6; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;}
+        .driver-popover-description { color: #94a3b8; font-size: 14px; line-height: 1.5;}
+        .driver-popover-next-btn, .driver-popover-prev-btn { background-color: #3b82f6; color: white; border: none; font-weight: bold; border-radius: 6px; text-shadow: none;}
+        .driver-popover-close-btn { color: #64748b; }
+      `}} />
 
       <motion.header className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-4 sm:px-5 bg-slate-950/90 backdrop-blur-md z-50 border-b-2 border-slate-800 border-dashed">
-        <span className="text-3xl font-black text-slate-100 tracking-tight">Campus<span className="text-blue-500">FLOW</span></span>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-12 h-12">
-          <path d="M1 8h6M0 12h5M2 16h4" className="stroke-slate-500" strokeWidth="1.5" strokeDasharray="2 2" />
-          <g className="stroke-blue-400" strokeWidth="2.5">
-            <circle cx="16" cy="5" r="2.5" />
-            <path d="M16 7.5L13 14" />
-            <path d="M14 11L11 10L9 12" />
-            <path d="M14 11L17 12L19 9" />
-            <path d="M13 14L10 17L7 17" />
-            <path d="M13 14L16 18L15 22" />
-          </g>
-        </svg>
+        
+        <div className="flex items-center gap-2"> 
+          <span className="text-3xl font-black text-slate-100 tracking-tight">Campus<span className="text-blue-500">FLOW</span></span>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-10 h-10 mb-1">
+            <path d="M1 8h6M0 12h5M2 16h4" className="stroke-slate-500" strokeWidth="1.5" strokeDasharray="2 2" />
+            <g className="stroke-blue-400" strokeWidth="2.5">
+              <circle cx="16" cy="5" r="2.5" />
+              <path d="M16 7.5L13 14" />
+              <path d="M14 11L11 10L9 12" />
+              <path d="M14 11L17 12L19 9" />
+              <path d="M13 14L10 17L7 17" />
+              <path d="M13 14L16 18L15 22" />
+            </g>
+          </svg>
+        </div>
         
         <div className="flex items-center gap-4">
-          <span className="text-xl sm:text-2xl font-bold text-slate-100 whitespace-nowrap">
-            Hi, {currentUserName.split(' ')[0]}!
-          </span>
-          <div className="flex items-center gap-2">
-            <button onClick={() => { setIsRefreshing(true); setRefreshKey(k => k+1); setTimeout(() => setIsRefreshing(false), 1000); }} className="p-1 text-slate-300">
-              <RefreshCw size={24} className={isRefreshing ? "animate-spin text-blue-400" : ""} />
+          <div className="flex items-center gap-3">
+            <button onClick={startTour} className="p-1 text-slate-400 hover:text-blue-400 transition-colors" title="Replay Tour">
+              <HelpCircle size={22} />
             </button>
-            <Settings size={26} className="text-slate-300 cursor-pointer" onClick={() => { setIsEditingProfile(false); setShowSettings(true); }} />
+            <button onClick={() => { setIsRefreshing(true); setRefreshKey(k => k+1); setTimeout(() => setIsRefreshing(false), 1000); }} className="p-1 text-slate-300">
+              <RefreshCw size={22} className={isRefreshing ? "animate-spin text-blue-400" : ""} />
+            </button>
+            <Settings size={26} className="text-slate-300 cursor-pointer tour-settings" onClick={() => { setIsEditingProfile(false); setShowSettings(true); }} />
           </div>
         </div>
       </motion.header>
@@ -445,17 +466,31 @@ export default function App() {
       <main className="flex-1 w-full max-w-md mx-auto relative pt-20 pb-24">         
         <AnimatePresence mode="wait">
           <motion.div key={`${activeTab}-${refreshKey}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-            {activeTab === 'home' && !isAdmin && <Dashboard navigateTo={setActiveTab} />}
+            
+            {activeTab === 'home' && !isAdmin && (
+              <div className="tour-home-widgets w-full">
+                <Dashboard navigateTo={setActiveTab} />
+              </div>
+            )}
+            
             {activeTab === 'vault' && !isAdmin && <Vault />}
             {activeTab === 'daily' && <Daily />}
             {activeTab === 'admin' && isAdmin && <AdminDashboard navigateTo={navigateTo} />}
+            
+            {activeTab === 'bazaar' && (
+              <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4 tour-bazaar-content">
+                <ShoppingBag size={64} className="text-slate-700 mb-4" />
+                <h2 className="text-3xl font-black text-slate-400 uppercase tracking-widest mb-2">The Bazaar</h2>
+                <p className="text-slate-500 font-sans font-bold leading-relaxed">2nd Hand Store • Thapar Navigator • Events<br/>Coming Soon.</p>
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-md border-t-2 border-slate-800 border-dashed px-4 py-3 flex justify-around">
         {navItems.map(item => (
-          <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 px-4 ${activeTab === item.id ? 'text-slate-100' : 'text-slate-500'}`}>
+          <button key={item.id} onClick={() => setActiveTab(item.id)} className={`tour-${item.id}-nav flex flex-col items-center gap-1 px-4 ${activeTab === item.id ? 'text-slate-100' : 'text-slate-500'}`}>
             <item.icon size={26} />
             <span className="text-lg font-bold">{item.label}</span>
           </button>
@@ -484,10 +519,8 @@ export default function App() {
                     
                     <div className="space-y-4">
                       {settingsFieldsToDisplay.map(label => {
-                        const key = label.toLowerCase() as keyof typeof userDetails;
-                        const isSem = label === 'Semester';
-                        const isGuest = userDetails.role === 'guest';
-                        const hasEmailYear = getJoiningYear(userDetails.email) !== null;
+                        const key = label.toLowerCase() === 'semester' ? 'semester' : label.toLowerCase() as keyof typeof userDetails;
+                        const isDisabled = label === 'Semester';
                         
                         return (
                           <div key={label} className="flex justify-between items-end group border-b border-slate-800 pb-1">
@@ -495,8 +528,8 @@ export default function App() {
                             <div className="relative w-36">
                               <select 
                                 value={userDetails[key]} 
-                                onChange={(e) => updateProfile({ [key]: e.target.value })} 
-                                disabled={(isSem && hasEmailYear) || (isSem && isGuest)} 
+                                onChange={(e) => updateProfile({ [label.toLowerCase() === 'semester' ? 'semester' : label.toLowerCase()]: e.target.value })} 
+                                disabled={isDisabled} 
                                 className="w-full bg-transparent appearance-none text-blue-500 text-2xl font-black outline-none text-center disabled:opacity-50 disabled:cursor-not-allowed font-caveat"
                               >
                                 {label === 'Stream' ? THAPAR_STREAMS.map(s => <option key={s} value={s} className="bg-slate-900 text-white font-caveat text-xl">{s}</option>) :
@@ -515,7 +548,7 @@ export default function App() {
                                  )}
                               </select>
                             </div>
-                            {((isSem && hasEmailYear) || (isSem && isGuest)) && <Lock size={12} className="text-slate-500 absolute right-6 mb-2" />}
+                            {isDisabled && <Lock size={12} className="text-slate-500 absolute right-6 mb-2" />}
                           </div>
                         );
                       })}

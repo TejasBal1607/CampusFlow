@@ -7,7 +7,7 @@ import { Home, Wallet, BookOpen, ShoppingBag, Settings, Pin } from 'lucide-react
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
 export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) => void }) {  
-  const token = localStorage.getItem('cf_token'); // <-- Added token here so the whole file can use it
+  const token = localStorage.getItem('cf_token'); 
   
   const [activeNav, setActiveNav] = useState('home');
   const [currentNoticeIndex, setCurrentNoticeIndex] = useState(0);
@@ -15,7 +15,6 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
   const [userData, setUserData] = useState<any>({ role: '', batch: '', hostel: '' });
   const [fresherConfig, setFresherConfig] = useState({ batches: [], hostels: [] });
 
-  // --- REAL BACKEND CONNECTION STATE ---
   const [financeData, setFinanceData] = useState({ ideal_month_avg: 0, percentage: 0 });
   const [isLoadingFinance, setIsLoadingFinance] = useState(true);
   
@@ -23,6 +22,7 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
     name: 'Loading...', time: '', location: '', isFree: false
   });
 
+  const userName = localStorage.getItem('cf_name')?.split(' ')[0] || 'Student';
 
   useEffect(() => {
     let cachedTimetable: any = null;
@@ -34,18 +34,15 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
         const profileRes = await axios.get(`${API_HOST}/auth/me?token=${token}`);
         setUserData({ role: profileRes.data.role, batch: profileRes.data.batch, hostel: profileRes.data.hostel });
         
-        // Fetch dynamic lists for the modal
         const confRes = await axios.get(`${API_HOST}/auth/config/freshers`);
         setFresherConfig(confRes.data);
       } catch (e) { }
 
-      // 1. Finance Fetch
       try {
         const today = new Date();
         const currentUserId = parseInt(JSON.parse(atob(token.split('.')[1])).sub) || 1; 
         const url = `${API_HOST}/finance/summary/${currentUserId}?month=${today.getMonth() + 1}&year=${today.getFullYear()}`;
         const financeRes = await axios.get(url);
-        
         
         setFinanceData({
           ideal_month_avg: financeRes.data.ideal_month_avg,
@@ -57,7 +54,6 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
         setIsLoadingFinance(false);
       }
 
-      // 2. Timetable Fetch & Calculation
       try {
         if (!cachedTimetable) {
           const timeRes = await axios.get(`${API_HOST}/daily/timetable?token=${token}`);
@@ -73,7 +69,6 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
       }
     };
 
-    // --- THE SMART CLOCK LOGIC ---
     const calculateNextClass = (schedule: any[]) => {
       if (!schedule || schedule.length === 0) return;
       
@@ -84,7 +79,6 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
 
       const todaySchedule = schedule.find((d: any) => d.day === currentDay);
 
-      // Rule 1: Is it the weekend or a completely free day?
       if (!todaySchedule || !todaySchedule.classes || todaySchedule.classes.length === 0) {
          setNextClassInfo({ 
            name: currentDay === 'Saturday' || currentDay === 'Sunday' ? 'Weekend Vibe' : 'Free Day!', 
@@ -95,7 +89,6 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
          return;
       }
 
-      // Helper to convert "08:50 AM" to minutes for easy comparison
       const parseTime = (timeStr: string) => {
          const parts = timeStr.trim().split(' ');
          if (parts.length < 2) return 0;
@@ -106,13 +99,11 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
          return h * 60 + (m || 0);
       };
 
-      // Rule 2: Find the next (or currently ongoing) class
       for (const cls of todaySchedule.classes) {
          const times = (cls.time || cls.start_time || "").split('-');
          const startMins = parseTime(times[0]);
          const endMins = times.length > 1 ? parseTime(times[1]) : startMins + 50;
 
-         // If the class hasn't ended yet, it's our target!
          if (endMins > currentMins) {
             const isCurrent = currentMins >= startMins && currentMins <= endMins;
             setNextClassInfo({
@@ -125,12 +116,10 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
          }
       }
 
-      // Rule 3: If the loop finishes, all classes for today are over
       setNextClassInfo({ name: 'Done for the day!', time: 'Classes over', location: 'Go Rest', isFree: true });
     };
 
     fetchAllData();
-    // Re-run the clock and finance check every 60 seconds
     const interval = setInterval(fetchAllData, 60000);
     return () => clearInterval(interval);
   }, []);
@@ -138,20 +127,9 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
   const notices = [
     {
       id: 1,
-      title: 'Sat Hack 2026 Registration Open!',
-      description: 'Join the biggest hackathon of the year. Register now and build something extraordinary with your team!',
-    },
-    {
-      id: 2,
-      title: 'Campus Fest Planning Meeting',
-      description: 'All student leaders are invited to the planning meeting on Friday at 3 PM in the Auditorium Hall.',
-    },
-    {
-      id: 3,
-      title: 'Bhvya ki maths mein back',
-      description: 'At this point she has started a collection. Not even a news',
-    },
-  ];
+      title: 'New Bazaar Feature',
+      description: 'Coming Soon!!',
+    }  ];
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -173,11 +151,17 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
   return (
     <div className="max-w-md mx-auto w-full min-h-[100dvh] relative overflow-x-hidden shadow-2xl border-x border-slate-700 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:24px_24px] bg-slate-900 flex flex-col">
       
-      <motion.div className="flex-1 overflow-y-auto px-4 pt-6 pb-28 flex flex-col z-10" variants={containerVariants} initial="hidden" animate="visible">
+      <motion.div className="flex-1 overflow-y-auto px-4 pt-4 pb-28 flex flex-col z-10" variants={containerVariants} initial="hidden" animate="visible">
         
-        <div className="grid grid-cols-2 gap-4 mb-10">
+        {/* NEW FADED DASHBOARD GREETING */}
+        <div className="flex justify-center pt-2 pb-6">
+          <h2 className="text-2xl font-black text-slate-500/80 uppercase tracking-widest drop-shadow-sm text-center">
+            Hi, {userName}!
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-10 tour-home-widgets">
           
-          {/* Academics - Sticky Note */}
           <motion.div
             onClick={() => navigateTo('daily')}
             variants={itemVariants}
@@ -207,7 +191,6 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
             </div>
           </motion.div>
 
-          {/* Finance - Battery */}
           <motion.div
             onClick={() => navigateTo('vault')}
             variants={itemVariants}
@@ -254,7 +237,6 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
           </motion.div>
         </div>
 
-        {/* Announcements - Pinned Paper */}
         <motion.div
           variants={itemVariants}
           className="cursor-pointer relative flex-grow flex flex-col outline-none focus:outline-none select-none [-webkit-tap-highlight-color:transparent] mb-6"
@@ -317,7 +299,7 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
           </div>
         </motion.div>
       </motion.div>
-    {/* THE FRESHER GUEST SETUP MODAL */}
+
       <AnimatePresence>
         {userData.role === 'guest' && (!userData.batch || userData.batch === '') && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4">

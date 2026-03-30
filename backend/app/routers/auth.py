@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -54,6 +55,21 @@ class UserOut(BaseModel):
     class Config:
         from_attributes = True
 
+# --- BACKEND SEMESTER CALCULATOR ---
+def get_auto_semester(email: str) -> int:
+    match = re.search(r'_be(\d{2})@thapar\.edu', email)
+    if not match:
+        return 1
+    
+    join_year = 2000 + int(match.group(1))
+    now = datetime.utcnow()
+    
+    sems = (now.year - join_year) * 2
+    if now.month >= 7:
+        sems += 1
+        
+    return max(1, min(8, sems))
+
 def get_current_user(token: str, db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -68,9 +84,17 @@ def get_current_user(token: str, db: Session = Depends(get_db)):
     except JWTError:
         raise credentials_exception
     
-    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
+    user = db.query(models.User).filter(models.User.id == user_id).first()
     if user is None:
         raise credentials_exception
+
+    # THE BAN SHIELD
+    if user.banned_until and user.banned_until > datetime.utcnow():
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Account suspended until {user.banned_until.strftime('%b %d, %Y')}. Reason: Community Guidelines Violation."
+        )
+        
     return user
 
 @router.post("/google", response_model=TokenOut)
@@ -91,6 +115,9 @@ def google_auth(req: GoogleAuthRequest, db: Session = Depends(get_db)):
             assigned_role = "student"
         else:
             assigned_role = "guest"
+            
+        # Dynamically calculate the accurate semester!
+        auto_sem = get_auto_semester(email) if assigned_role == "student" else 1
 
         user = db.query(models.User).filter(models.User.email == email).first()
 
@@ -102,18 +129,30 @@ def google_auth(req: GoogleAuthRequest, db: Session = Depends(get_db)):
                 is_verified=True if is_tejas else is_thapar_email,
                 batch="1A84" if assigned_role == "student" else "Unassigned",
                 hostel="Day Scholar" if assigned_role == "student" else "Unassigned",
-                stream=None if is_tejas else "COE"
+                stream=None if is_tejas else "COE",
+                semester=auto_sem # <-- SAVED TO DB
             )
             db.add(user)
             db.commit()
             db.refresh(user)
-        elif user.role != assigned_role or (is_tejas and user.name != "ADMIN"):
-            user.role = assigned_role
-            user.is_verified = True if is_tejas else is_thapar_email
-            if is_tejas:
-                user.name = "ADMIN"
-            db.commit()
-            db.refresh(user)
+        else:
+            # If the user already exists, quietly check if their semester shifted (e.g. they logged in after July)
+            updated = False
+            
+            if user.role != assigned_role or (is_tejas and user.name != "ADMIN"):
+                user.role = assigned_role
+                user.is_verified = True if is_tejas else is_thapar_email
+                if is_tejas:
+                    user.name = "ADMIN"
+                updated = True
+                
+            if user.semester != auto_sem:
+                user.semester = auto_sem # <-- FORCE SYNC EXISTING USERS
+                updated = True
+                
+            if updated:
+                db.commit()
+                db.refresh(user)
 
         access_token = jwt.encode(
             {"sub": str(user.id), "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)}, 
@@ -132,7 +171,6 @@ def get_me(token: str, db: Session = Depends(get_db)):
 def update_me(payload: UserUpdate, token: str, db: Session = Depends(get_db)):
     user = get_current_user(token, db)
     
-    # We use 'is not None' so that empty strings or "Unassigned" are properly saved!
     if payload.name is not None: user.name = payload.name
     if payload.phone is not None: user.phone = payload.phone
     if payload.batch is not None: user.batch = payload.batch
@@ -168,6 +206,7 @@ def migrate_to_thapar(req: GoogleAuthRequest, db: Session = Depends(get_db), cur
         current_user.email = new_email
         current_user.role = "student"
         current_user.is_verified = True
+        current_user.semester = get_auto_semester(new_email) # <-- SAVED ON MIGRATION
         db.commit()
         
         return {"message": "Migration successful. Welcome officially to CampusFLOW."}

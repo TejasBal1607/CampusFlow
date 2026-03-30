@@ -7,6 +7,12 @@ import autoTable from 'jspdf-autotable';
 
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
+// HELPER: Privacy Mask for Phone Numbers
+const maskPhone = (phone: string | null | undefined) => {
+  if (!phone || phone.length < 4) return 'No phone';
+  return `${phone.slice(0, 2)}******${phone.slice(-2)}`;
+};
+
 export default function Vault() {
   const token = localStorage.getItem('cf_token');
   const currentUserId = token ? parseInt(JSON.parse(atob(token.split('.')[1])).sub) : 1;
@@ -52,6 +58,19 @@ export default function Vault() {
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleViewChange = (e: any) => setCurrentView(e.detail);
+    const handleModalChange = (e: any) => setActiveModal(e.detail);
+    
+    window.addEventListener('tour-vault-view', handleViewChange);
+    window.addEventListener('tour-vault-modal', handleModalChange);
+    
+    return () => {
+      window.removeEventListener('tour-vault-view', handleViewChange);
+      window.removeEventListener('tour-vault-modal', handleModalChange);
+    };
+  }, []);
 
   const closeModal = () => {
     setActiveModal('none');
@@ -412,10 +431,7 @@ export default function Vault() {
 
     if (type === 'ledger' && !isCreator) {
       return (
-        <div 
-          className="ml-2 pl-2 border-l border-slate-700/50 flex items-center justify-center"
-          title="Only the creator/lender can edit this entry"
-        >
+        <div className="ml-2 pl-2 border-l border-slate-700/50 flex items-center justify-center" title="Only the creator/lender can edit this entry">
           <Lock size={16} className="text-slate-600" />
         </div>
       );
@@ -449,23 +465,23 @@ export default function Vault() {
 
   const renderOverview = () => (
     <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6 pb-8">
-      <div className="grid grid-cols-2 gap-4">
-        <motion.div onClick={() => setCurrentView('incomes')} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="cursor-pointer bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-tl-xl rounded-br-2xl rotate-1 shadow-lg flex flex-col justify-center">
+      <div className="grid grid-cols-2 gap-4 mb-8 tour-vault-metrics">
+        <motion.div onClick={() => setCurrentView('incomes')} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="tour-vault-net cursor-pointer bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-tl-xl rounded-br-2xl rotate-1 shadow-lg flex flex-col justify-center">
           <h3 className="text-lg text-slate-400 font-bold mb-1">Net Cash In</h3><p className="text-4xl font-extrabold text-green-400 mb-1">₹{overviewData.netCashIn}</p>
         </motion.div>
-        <motion.div onClick={() => setCurrentView('expenses')} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="cursor-pointer bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-tr-xl rounded-bl-2xl -rotate-1 shadow-lg flex flex-col justify-center">
+        <motion.div onClick={() => setCurrentView('expenses')} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="tour-vault-exp cursor-pointer bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-tr-xl rounded-bl-2xl -rotate-1 shadow-lg flex flex-col justify-center">
           <h3 className="text-lg text-slate-400 font-bold mb-1">Expenses</h3><p className="text-4xl font-extrabold text-red-400 mb-1">₹{overviewData.totalExpenses}</p>
         </motion.div>
-        <motion.div onClick={() => setCurrentView('savings')} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="cursor-pointer bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-bl-xl rounded-tr-2xl -rotate-1 shadow-lg flex flex-col justify-center">
+        <motion.div onClick={() => setCurrentView('savings')} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="tour-vault-sav cursor-pointer bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-bl-xl rounded-tr-2xl -rotate-1 shadow-lg flex flex-col justify-center">
           <h3 className="text-lg text-slate-400 font-bold mb-1">Savings</h3><p className="text-4xl font-extrabold text-blue-400 mb-1">₹{overviewData.globalSavings}</p>
         </motion.div>
-        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-br-xl rounded-tl-2xl rotate-1 shadow-lg flex flex-col justify-center relative">
-          <div className="flex justify-between items-start mb-1"><h3 className="text-lg text-slate-400 font-bold">Available</h3><button onClick={() => setActiveModal('budget')} className="p-1 hover:text-yellow-400 bg-slate-800 rounded-md border border-slate-600"><Edit2 size={16} className="text-slate-300" /></button></div>
+        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="tour-vault-avail bg-slate-900/80 border-2 border-dashed border-slate-600 p-4 rounded-br-xl rounded-tl-2xl rotate-1 shadow-lg flex flex-col justify-center relative">
+          <div className="flex justify-between items-start mb-1"><h3 className="text-lg text-slate-400 font-bold">Available</h3><button onClick={() => setActiveModal('budget')} className="tour-vault-budget p-1 hover:text-yellow-400 bg-slate-800 rounded-md border border-slate-600"><Edit2 size={16} className="text-slate-300" /></button></div>
           <p className="text-4xl font-extrabold text-yellow-400 mb-1">₹{overviewData.availableLimit}</p>
         </motion.div>
       </div>
 
-      <motion.div onClick={() => setCurrentView('ledger')} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} className="cursor-pointer w-full bg-slate-900/80 border-2 border-dashed border-slate-500 p-5 rounded-xl shadow-lg relative mt-2">
+      <motion.div onClick={() => setCurrentView('ledger')} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} className="tour-vault-ledger cursor-pointer w-full bg-slate-900/80 border-2 border-dashed border-slate-500 p-5 rounded-xl shadow-lg relative mt-2">
         <h3 className="text-xl text-slate-300 font-bold mb-3 absolute -top-4 bg-slate-950 px-2 rotate-[-2deg]">Debt Ledger</h3>
         <div className="flex justify-between items-center mt-2">
           <div className="flex-1 text-center border-r-2 border-slate-700 border-dashed"><p className="text-4xl font-black text-green-400">+₹{activeLent}</p><p className="text-lg text-slate-500 font-bold">Lent</p></div>
@@ -473,7 +489,7 @@ export default function Vault() {
         </div>
       </motion.div>
 
-      <div className="mt-8">
+      <div className="mt-8 tour-vault-avg">
         <h3 className="text-2xl font-bold mb-4 px-2 tracking-wide">Daily Burn Rate</h3>
         <div className="relative h-60 w-full ml-4">
           <div className="absolute left-0 top-0 bottom-0 w-1 bg-slate-600 rounded-full"><div className="absolute top-[15%] -left-2 w-5 h-1 bg-slate-600"></div><div className="absolute top-[50%] -left-2 w-5 h-1 bg-slate-600"></div><div className="absolute top-[85%] -left-2 w-5 h-1 bg-slate-600"></div></div>
@@ -483,7 +499,7 @@ export default function Vault() {
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 tour-vault-alloc">
         <h3 className="text-2xl font-bold mb-6 px-2 tracking-wide">Resource Allocation</h3>
         <div className="flex items-center gap-8 px-4">
           {(() => {
@@ -510,7 +526,7 @@ export default function Vault() {
           whileHover={{ scale: 1.05, rotate: 2 }}
           whileTap={{ scale: 0.95 }}
           onClick={generatePDF}
-          className="relative w-1/2 text-xl font-black text-blue-500 font-sans tracking-widest uppercase p-3 border-4 border-blue-500/80 border-dashed rounded-lg drop-shadow-[2px_4px_0px_rgba(59,130,246,0.2)] hover:bg-blue-500/10 transition-all select-none flex items-center justify-center gap-2"
+          className="tour-vault-export relative w-1/2 text-xl font-black text-blue-500 font-sans tracking-widest uppercase p-3 border-4 border-blue-500/80 border-dashed rounded-lg drop-shadow-[2px_4px_0px_rgba(59,130,246,0.2)] hover:bg-blue-500/10 transition-all select-none flex items-center justify-center gap-2"
         >
           <Download size={20} strokeWidth={3} />
           EXPORT
@@ -523,7 +539,7 @@ export default function Vault() {
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="relative h-full">
       <div className="absolute left-[22%] top-0 bottom-0 w-[2px] bg-red-500/30"></div><div className="absolute right-[35%] top-0 bottom-0 w-[2px] bg-red-500/30"></div>
       <div className="flex w-full pb-2 border-b-2 border-slate-700 mb-4 text-slate-400 font-bold text-lg"><div className="w-[22%] text-center">Date</div><div className="flex-1 px-4">Entry Details</div><div className="w-[35%] text-right pr-2">Amt/Act</div></div>
-      <div className="space-y-4 relative z-10 overflow-y-auto max-h-[65vh] pb-24 pr-1 hide-scrollbar">
+      <div className="tour-vault-log space-y-4 relative z-10 overflow-y-auto max-h-[65vh] pb-24 pr-1 hide-scrollbar">
         {[...expensesList].sort(sortByDate).map((item, i) => (
           <div key={item.id || i} className="flex items-center w-full py-2 group hover:bg-slate-800/30 rounded-md transition-colors">
             <div className="w-[22%] text-center text-lg font-bold text-slate-500 whitespace-nowrap">{formatDate(item.date || item.created_at)}</div>
@@ -541,7 +557,7 @@ export default function Vault() {
           </div>
         ))}
       </div>
-      <motion.button onClick={() => { closeModal(); setActiveModal('expense'); }} whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} className="absolute bottom-6 right-2 w-14 h-14 bg-red-400 text-slate-900 rounded-full flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,0.5)] border-2 border-slate-900 z-40"><Plus strokeWidth={3} size={32} /></motion.button>
+      <motion.button onClick={() => { closeModal(); setActiveModal('expense'); }} whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} className="tour-vault-add absolute bottom-6 right-2 w-14 h-14 bg-red-400 text-slate-900 rounded-full flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,0.5)] border-2 border-slate-900 z-40"><Plus strokeWidth={3} size={32} /></motion.button>
     </motion.div>
   );
 
@@ -597,15 +613,15 @@ export default function Vault() {
   );
 
   const renderLedger = () => (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6 overflow-y-auto max-h-[75vh] pb-24 hide-scrollbar">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6 overflow-y-auto max-h-[75vh] pb-24 hide-scrollbar tour-vault-ledger">
       <div className="bg-slate-900/60 border-2 border-green-500/50 rounded-xl p-4">
         <h3 className="text-2xl font-bold text-green-400 mb-4 flex items-center gap-2"><ArrowDownRight /> They Owe Me</h3>
         <div className="space-y-4">
           {[...ledgerList].filter(l => l.lender_id === currentUserId).sort(sortByDate).map((item, i) => (
             <div key={item.id || i} className={`flex justify-between items-center group ${item.is_settled ? 'opacity-40' : ''}`}>
               <div className="flex flex-col overflow-hidden mr-2">
-                <span className={`text-xl font-bold truncate ${item.is_settled ? 'line-through decoration-2' : ''}`}>{item.description || item.name}</span>
-                <span className="text-sm text-slate-500 font-sans tracking-wide">Generated: {formatDate(item.date || item.created_at)}</span>
+                <span className={`text-xl font-bold truncate ${item.is_settled ? 'line-through decoration-2' : ''}`}>{item.name || "Friend"}</span>
+                <span className="text-sm text-slate-500 font-sans tracking-wide truncate">{item.description} • {formatDate(item.date || item.created_at)}</span>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0 whitespace-nowrap">
                 <span className={`text-2xl font-extrabold ${item.is_settled ? 'text-slate-500 line-through' : 'text-green-400'}`}>₹{item.amount}</span><ActionButtons type="ledger" item={item}/>
@@ -630,7 +646,7 @@ export default function Vault() {
           ))}
         </div>
       </div>
-      <motion.button onClick={() => { closeModal(); setActiveModal('ledger'); }} whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} className="fixed bottom-24 right-6 w-14 h-14 bg-slate-400 text-slate-900 rounded-full flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,0.5)] border-2 border-slate-900 z-40"><Plus strokeWidth={3} size={32} /></motion.button>
+      <motion.button onClick={() => { closeModal(); setActiveModal('ledger'); }} whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }} className="fixed bottom-24 right-6 w-14 h-14 bg-slate-400 text-slate-900 rounded-full flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,0.5)] border-2 border-slate-900 z-40 tour-vault-add"><Plus strokeWidth={3} size={32} /></motion.button>
     </motion.div>
   );
 
@@ -668,7 +684,7 @@ export default function Vault() {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeModal} className="fixed inset-0 bg-black/70 z-[60] backdrop-blur-sm max-w-md mx-auto" />
             
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} 
-              className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#fdfbf7] text-slate-900 z-[70] pt-12 pb-10 px-6 drop-shadow-[0_-10px_10px_rgba(0,0,0,0.3)] overflow-y-auto max-h-[85vh] hide-scrollbar"
+              className="tour-vault-modal fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#fdfbf7] text-slate-900 z-[70] pt-12 pb-10 px-6 drop-shadow-[0_-10px_10px_rgba(0,0,0,0.3)] overflow-y-auto max-h-[85vh] hide-scrollbar"
               style={{ clipPath: 'polygon(0 15px, 5% 0, 10% 15px, 15% 0, 20% 15px, 25% 0, 30% 15px, 35% 0, 40% 15px, 45% 0, 50% 15px, 55% 0, 60% 15px, 65% 0, 70% 15px, 75% 0, 80% 15px, 85% 0, 90% 15px, 95% 0, 100% 15px, 100% 100%, 0 100%)' }}
             >
               
@@ -688,7 +704,7 @@ export default function Vault() {
                         if (userRole === 'guest') return alert("Link a verified Thapar ID to use AI Receipt Scanning.");
                         fileInputRef.current?.click();
                       }} 
-                      className={`p-2 border-2 border-slate-300 rounded-full border-dashed flex items-center justify-center mr-8 transition-colors ${userRole === 'guest' ? 'text-slate-300 opacity-50 cursor-not-allowed' : 'text-slate-500 hover:text-slate-900'}`}
+                      className={`tour-vault-ocr p-2 border-2 border-slate-300 rounded-full border-dashed flex items-center justify-center mr-8 transition-colors ${userRole === 'guest' ? 'text-slate-300 opacity-50 cursor-not-allowed' : 'text-slate-500 hover:text-slate-900'}`}
                     >
                       {isOcrLoading ? <Loader2 className="animate-spin text-blue-500" size={24} /> : <Camera size={24} />}
                     </button>
@@ -718,7 +734,7 @@ export default function Vault() {
 
                     <div className="flex gap-4 pt-2">
                       {!selectedId ? (
-                        <button onClick={() => setShowSplitUI(!showSplitUI)} className={`flex-1 flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold transition-colors ${showSplitUI || formData.splitWith.length > 0 ? 'bg-slate-800 text-white' : 'hover:bg-slate-200 text-slate-800'}`}>
+                        <button onClick={() => setShowSplitUI(!showSplitUI)} className={`tour-vault-split flex-1 flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold transition-colors ${showSplitUI || formData.splitWith.length > 0 ? 'bg-slate-800 text-white' : 'hover:bg-slate-200 text-slate-800'}`}>
                           <Users size={18} /> {formData.splitWith.length > 0 ? `Split (${formData.splitWith.length})` : 'Split'}
                         </button>
                       ) : (
@@ -726,7 +742,7 @@ export default function Vault() {
                           <Lock size={16} /> Split Locked
                         </div>
                       )}
-                      <button onClick={() => setFormData(prev => ({...prev, isRecurring: !prev.isRecurring}))} className={`flex-1 flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold transition-colors ${formData.isRecurring ? 'bg-purple-600 text-white border-purple-600' : 'hover:bg-slate-200 text-slate-800'}`}>
+                      <button onClick={() => setFormData(prev => ({...prev, isRecurring: !prev.isRecurring}))} className={`tour-vault-repeat flex-1 flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold transition-colors ${formData.isRecurring ? 'bg-purple-600 text-white border-purple-600' : 'hover:bg-slate-200 text-slate-800'}`}>
                         <Repeat size={18} /> Monthly
                       </button>
                     </div>
@@ -755,7 +771,8 @@ export default function Vault() {
                                 className="px-3 py-2 border-b border-slate-100 hover:bg-slate-50 cursor-pointer flex justify-between items-center"
                               >
                                 <span className="font-bold text-slate-700 font-sans">{user.name}</span>
-                                <span className="text-xs text-slate-400 font-sans">{user.phone || 'No phone'}</span>
+                                {/* Privacy check: Call the maskPhone helper! */}
+                                <span className="text-xs text-slate-400 font-sans">{maskPhone(user.phone)}</span>
                               </div>
                             ))}
                           </div>
@@ -897,7 +914,8 @@ export default function Vault() {
                               className="px-3 py-2 border-b border-slate-100 hover:bg-slate-50 cursor-pointer flex justify-between items-center"
                             >
                               <span className="font-bold text-slate-700 font-sans">{user.name}</span>
-                              <span className="text-xs text-slate-400 font-sans">{user.phone || 'No phone'}</span>
+                              {/* Privacy check: Call the maskPhone helper! */}
+                              <span className="text-xs text-slate-400 font-sans">{maskPhone(user.phone)}</span>
                             </div>
                           ))}
                         </div>
@@ -909,7 +927,6 @@ export default function Vault() {
                       <button onClick={() => setFormData({...formData, type: 'lent'})} className={`flex-1 flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold ${formData.type === 'lent' ? 'bg-green-500 text-white' : 'text-green-600 hover:bg-slate-200'}`}>They Owe</button>
                     </div>
 
-                    {/* --- THE INLINE CONFIRMATION UI --- */}
                     {showSettleAlert ? (
                       <div className="bg-yellow-500/10 border-2 border-yellow-500/50 p-4 rounded-md mt-4 animate-in fade-in slide-in-from-top-4 duration-200">
                         <h4 className="text-yellow-600 font-black text-lg flex items-center gap-2 mb-1"><AlertTriangle size={20}/> Confirm Settlement</h4>

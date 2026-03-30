@@ -127,8 +127,8 @@ class MessMenu(Base):
     uploader_id = Column(Integer, ForeignKey("users.id"))
     
     # --- NEW: STRIKE SYSTEM ---
-    report_count = Column(Integer, default=0) 
-    
+    report_count = Column(Integer, default=0)
+    reporters = Column(String, default="")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     uploader = relationship("User")
 

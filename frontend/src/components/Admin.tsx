@@ -133,7 +133,6 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
                 {/* --- ADDED CLICK-TO-VIEW FOR ADMIN --- */}
                 <div 
                   className="cursor-pointer group relative rounded border border-slate-700 overflow-hidden w-16 h-16 shrink-0" 
-                  onClick={() => window.open(menu.image_url, '_blank')}
                   title="Click to view full image"
                 >
                   <img src={menu.image_url} alt="Menu" className="w-full h-full object-cover group-hover:opacity-40 transition-opacity" />

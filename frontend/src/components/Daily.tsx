@@ -13,13 +13,25 @@ interface ClassSession {
   end_time?: string;
   venue: string;
   type: 'Lecture' | 'Lab' | 'Tutorial' | string;
-  status: 'past' | 'active' | 'future';
   attendance: 'attended' | 'bunked' | 'cancelled' | null;
-  endsIn?: string;
 }
+
+const parseTime = (timeStr: string) => {
+  if (!timeStr) return 0;
+  const parts = timeStr.trim().split(' ');
+  if (parts.length < 2) return 0;
+  let [h, m] = parts[0].split(':').map(Number);
+  const period = parts[1]?.toUpperCase();
+  if (period === 'PM' && h !== 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+  return h * 60 + (m || 0);
+};
 
 export default function Daily() {
   const token = localStorage.getItem('cf_token');
+  const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).sub : 'guest';
+  
+  const getTodayKey = () => `cf_attendance_${currentUserId}_${new Date().toLocaleDateString('en-CA')}`;
   
   const [isLoading, setIsLoading] = useState(true);
   const [showArchives, setShowArchives] = useState(false);
@@ -36,13 +48,13 @@ export default function Daily() {
   const [isUploadingMenu, setIsUploadingMenu] = useState(false);
   const menuFileInputRef = useRef<HTMLInputElement>(null);
   
-  // FIX: Added role to prevent TS Errors
   const [userData, setUserData] = useState({ 
     email: '', 
     batch: '1A84', 
     hostel: 'Day Scholar', 
     stream: 'COE', 
-    role: 'student' 
+    role: 'student',
+    semester: 1
   });
   
   const isAdmin = userData.role === 'super_admin' || userData.email === 'tejas1607.best@gmail.com';
@@ -60,16 +72,27 @@ export default function Daily() {
   const [commsRadar, setCommsRadar] = useState<any[]>([]);
   const [newComm, setNewComm] = useState({ tag: '', text: '', urgent: false, targetType: 'ALL', targetValue: '' });
 
+  const [liveMins, setLiveMins] = useState(new Date().getHours() * 60 + new Date().getMinutes());
+  
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveMins(new Date().getHours() * 60 + new Date().getMinutes());
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
   const fetchDailyData = async () => {
     try {
       const profileRes = await axios.get(`${API_HOST}/auth/me?token=${token}`);
+      const userEmail = profileRes.data.email;
       const userHostel = profileRes.data.hostel || 'Day Scholar';
       setUserData({
-        email: profileRes.data.email,
+        email: userEmail,
         batch: profileRes.data.batch || '1A84',
         hostel: userHostel,
         stream: profileRes.data.stream || 'COE',
-        role: profileRes.data.role || 'student'
+        role: profileRes.data.role || 'student',
+        semester: profileRes.data.semester || 1
       });
 
       try {
@@ -82,12 +105,16 @@ export default function Daily() {
         const todayData = timeRes.data.find((d: any) => d.day === currentDay);
         
         if (todayData && todayData.classes) {
-          const mappedClasses = todayData.classes.map((c: any, i: number) => ({
-            ...c,
-            id: i + 1,
-            status: 'future',
-            attendance: null
-          }));
+          const storageKey = `cf_attn_${userEmail}_${new Date().toLocaleDateString('en-CA')}`;
+          const savedState = JSON.parse(localStorage.getItem(storageKey) || '{}');
+
+          const mappedClasses = todayData.classes.map((c: any, i: number) => {
+            return {
+              ...c,
+              id: i + 1,
+              attendance: savedState[c.name] || null
+            };
+          });
           setTodayClasses(mappedClasses);
         } else {
           setTodayClasses([]); 
@@ -142,8 +169,9 @@ export default function Daily() {
     try {
       await axios.post(`${API_HOST}/daily/timetable/sync?token=${token}`, formData);
       fetchDailyData();
-    } catch (error) {
-      alert("AI Sync failed. Please make sure you uploaded a clear PNG of the timetable.");
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || "AI Sync failed. Please make sure you uploaded a clear PNG of the timetable.";
+      alert(errorMessage);
     } finally {
       setIsSyncing(false);
       if (syncInputRef.current) syncInputRef.current.value = '';
@@ -162,7 +190,7 @@ export default function Daily() {
     try {
       const res = await axios.post(`${API_HOST}/daily/mess-menu?token=${token}`, formData);
       setMessMenuData({
-        id: res.data.id, // <-- CHANGED from menuRes to res
+        id: res.data.id,
         url: res.data.image_url, 
         uploader: res.data.uploader_name,
         time: 'Just now'
@@ -178,6 +206,13 @@ export default function Daily() {
 
   const handleMarkAttendance = async (classId: number, subjectName: string, status: 'attended' | 'bunked' | 'cancelled' | null) => {
     setTodayClasses(classes => classes.map(c => c.id === classId ? { ...c, attendance: status } : c));
+    
+    const storageKey = getTodayKey();
+    const savedState = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    if (status === null) delete savedState[subjectName];
+    else savedState[subjectName] = status;
+    localStorage.setItem(storageKey, JSON.stringify(savedState));
+
     const tracker = bunkMeter.find(b => b.subject === subjectName);
     if (tracker) {
       try {
@@ -185,9 +220,27 @@ export default function Daily() {
         if (status === 'attended') actionStr = 'attend';
         if (status === 'bunked') actionStr = 'bunk';
         if (status === 'cancelled') actionStr = 'cancel';
+        
         await axios.put(`${API_HOST}/daily/bunk/${tracker.id}?token=${token}`, { action: actionStr });
-        fetchDailyData();
+        const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
+        setBunkMeter(bunkRes.data);
       } catch (error) { console.error("Failed to sync attendance", error); }
+    }
+  };
+
+  const nukeBunkMeter = async () => {
+    if (confirm("Are you sure you want to start fresh and completely wipe your Bunk Meter?")) {
+      setBunkMeter([]);
+      setTodayClasses(classes => classes.map(c => ({ ...c, attendance: null })));
+      localStorage.removeItem(getTodayKey());
+
+      try {
+        await axios.delete(`${API_HOST}/daily/bunk/reset?token=${token}`);
+        const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
+        setBunkMeter(bunkRes.data);
+      } catch (e) {
+        console.error("Failed to wipe bunk meter");
+      }
     }
   };
 
@@ -195,14 +248,17 @@ export default function Daily() {
     setShowAddSubject(false);
     try {
       await axios.post(`${API_HOST}/daily/bunk?token=${token}`, { subject: name });
-      fetchDailyData();
+      // FIX: Only fetch Bunk Meter to prevent undefined updates!
+      const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
+      setBunkMeter(bunkRes.data);
     } catch (error) { console.error("Failed to add bunk subject", error); }
   };
 
   const removeBunkSubject = async (id: number) => {
     try {
       await axios.delete(`${API_HOST}/daily/bunk/${id}?token=${token}`);
-      fetchDailyData();
+      const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
+      setBunkMeter(bunkRes.data);
     } catch (error) { console.error("Failed to remove bunk subject", error); }
   };
 
@@ -214,9 +270,10 @@ export default function Daily() {
         bunked: editingBunk.bunked
       });
       setEditingBunk(null);
-      fetchDailyData();
-    } catch (error) {
-      alert("Failed to update past data.");
+      const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
+      setBunkMeter(bunkRes.data);
+    } catch (error: any) {
+      alert(error.response?.data?.detail || "Failed to update past data.");
     }
   };
 
@@ -256,11 +313,8 @@ export default function Daily() {
     return 'bg-slate-500 text-white border-slate-600';
   };
 
-  // ==========================================
-  // RENDER HELPERS
-  // ==========================================
   const renderClassTracker = () => (
-    <div className="mb-6 mt-4">
+    <div className="mb-6 mt-4 tour-class-tracker">
       <div className="flex items-center justify-between mb-4 border-b-2 border-slate-800 pb-2">
         <div className="flex items-baseline gap-2">
           <h2 className="text-2xl font-black uppercase tracking-wider text-slate-100 whitespace-nowrap">Class Tracker</h2>
@@ -269,7 +323,7 @@ export default function Daily() {
         
         <div 
           onClick={() => !needsSync && setShowWeekSchedule(true)}
-          className={`text-right flex flex-col items-end justify-center transition-transform ${needsSync ? 'opacity-50' : 'cursor-pointer hover:scale-105'}`}
+          className={`tour-weekly-tt text-right flex flex-col items-end justify-center transition-transform ${needsSync ? 'opacity-50' : 'cursor-pointer hover:scale-105'}`}
           title={needsSync ? "Sync required to view week" : "View Full Week Schedule"}
         >
           <span className="text-2xl font-black text-blue-400 font-caveat leading-none">
@@ -284,7 +338,6 @@ export default function Daily() {
       {isLoading ? (
         <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-600 size-10" /></div>
       ) : isUnassigned ? (
-        // FIX: Replaced upload button with "Assign Batch" message
         <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center mt-2">
           <FileText size={40} className="text-slate-600 mb-3" />
           <h3 className="text-xl font-black text-slate-300 uppercase tracking-widest mb-2">Batch Unassigned</h3>
@@ -319,43 +372,57 @@ export default function Daily() {
       ) : (
         <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-4 -mx-4 px-4 snap-x mt-2">
           {todayClasses.map((cls) => {
-            const isActive = cls.status === 'active';
-            const isPast = cls.status === 'past';
+            const times = (cls.time || cls.start_time || "").split('-');
+            const startMins = parseTime(times[0]);
+            const endMins = times.length > 1 ? parseTime(times[1]) : startMins + 50;
+
+            let status = 'future';
+            if (liveMins > endMins) status = 'past';
+            else if (liveMins >= startMins && liveMins <= endMins) status = 'active';
+
+            const isActive = status === 'active';
+            const isPast = status === 'past';
+            const minsPassed = isActive ? (liveMins - startMins) : 0;
+            const minsLeft = isActive ? (endMins - liveMins) : 0;
             
             return (
               <motion.div 
                 key={cls.id}
-                className={`min-w-[260px] snap-center p-4 rounded-xl border-2 flex flex-col justify-between shrink-0 relative overflow-hidden ${
-                  isActive ? 'bg-slate-900/90 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 
-                  isPast ? 'bg-slate-900/40 border-slate-800' : 
+                className={`min-w-[260px] snap-center p-4 rounded-xl border flex flex-col justify-between shrink-0 relative overflow-hidden transition-all duration-700 ${
+                  isActive ? 'bg-slate-800/90 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.3)] scale-[1.02]' : 
+                  isPast ? 'bg-slate-900/30 border-slate-800 opacity-50 grayscale-[50%]' : 
                   'bg-slate-900/80 border-slate-700'
                 }`}
               >
-                <div className="flex justify-between items-start mb-3">
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-wider border-b-2 ${getTypeColor(cls.type)}`}>
+                <div className="flex justify-between items-start mb-3 relative">
+                  <span className={`text-[10px] font-black px-2.5 py-1 rounded-sm uppercase tracking-wider ${getTypeColor(cls.type)}`}>
                     {cls.type}
                   </span>
-                  {isActive && cls.endsIn && (
-                    <span className="text-[10px] font-black text-blue-400 animate-pulse flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-sm border border-blue-500/20">
-                      <Clock size={10} /> {cls.endsIn}
-                    </span>
+                  
+                  {isActive && (
+                     <div className="absolute -top-1 -right-1 flex flex-col items-end">
+                       <span className="text-xs font-black text-blue-400 bg-blue-500/10 px-2 py-1 rounded border border-blue-500/30 animate-pulse flex items-center gap-1">
+                         <Clock size={12}/> {minsPassed} mins in
+                       </span>
+                       <span className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">{minsLeft} mins left</span>
+                     </div>
                   )}
                 </div>
                 
-                <div className="mb-2">
-                  <h3 className={`text-xl font-black mb-2 truncate ${isActive ? 'text-slate-100' : isPast ? 'text-slate-400' : 'text-slate-300'}`}>{cls.name}</h3>
-                  <div className="flex items-center justify-between mt-2">
-                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 font-sans">
+                <div className="mb-2 mt-2">
+                  <h3 className={`text-2xl font-caveat font-bold mb-2 truncate ${isActive ? 'text-slate-100' : isPast ? 'text-slate-400' : 'text-slate-300'}`}>{cls.name}</h3>
+                  <div className="flex items-center justify-between mt-3">
+                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 font-sans">
                         <Clock size={12} /> {(cls.time || cls.start_time || "").split('-')[0]?.trim() || "TBA"}
                       </div>
-                     <div className={`flex items-center gap-1.5 font-black text-sm ${isActive ? 'text-blue-400' : 'text-slate-400'}`}>
+                     <div className={`flex items-center gap-1.5 font-bold text-sm font-sans ${isActive ? 'text-blue-400' : 'text-slate-500'}`}>
                        <MapPin size={14} /> {cls.venue}
                      </div>
                   </div>
                 </div>
 
                 {(isPast || isActive) && (
-                  <div className="mt-2 pt-3 border-t border-slate-800 flex gap-2">
+                  <div className="mt-2 pt-3 border-t border-slate-800/50 flex gap-2">
                     {cls.attendance ? (
                       <button 
                         onClick={() => handleMarkAttendance(cls.id, cls.name, null)}
@@ -367,13 +434,13 @@ export default function Daily() {
                         {cls.attendance === 'attended' && <CheckCircle2 size={14} />}
                         {cls.attendance === 'bunked' && <XCircle size={14} />}
                         {cls.attendance === 'cancelled' && <Slash size={14} />}
-                        {cls.attendance}
+                        {cls.attendance === 'bunked' ? 'SKIPPED' : cls.attendance}
                         <RotateCcw size={12} className="ml-1 opacity-50" />
                       </button>
                     ) : (
                       <>
                         <button onClick={() => handleMarkAttendance(cls.id, cls.name, 'attended')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-green-500 hover:text-white transition-colors">ATTEND</button>
-                        <button onClick={() => handleMarkAttendance(cls.id, cls.name, 'bunked')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-red-500 hover:text-white transition-colors">BUNK</button>
+                        <button onClick={() => handleMarkAttendance(cls.id, cls.name, 'bunked')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-red-500 hover:text-white transition-colors">SKIPPED</button>
                         <button onClick={() => handleMarkAttendance(cls.id, cls.name, 'cancelled')} className="flex-1 text-[10px] font-black tracking-widest py-2 bg-slate-800 text-slate-300 rounded-sm hover:bg-slate-600 transition-colors">CANCEL</button>
                       </>
                     )}
@@ -388,7 +455,7 @@ export default function Daily() {
   );
 
   const renderGrid = () => (
-    <div className="grid grid-cols-2 gap-4 mb-6">
+    <div className="grid grid-cols-2 gap-4 mb-6 tour-mess-menu">
       <motion.div 
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
@@ -425,16 +492,22 @@ export default function Daily() {
 
       <input type="file" accept="image/*" ref={menuFileInputRef} className="hidden" onChange={handleMenuUpload} />
 
-      <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-3 flex flex-col relative h-[180px]">
+      <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-3 flex flex-col relative h-[180px] tour-bunk-meter">
         <div className="flex items-center justify-between border-b-2 border-slate-800 pb-2 mb-3">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Bunk Meter</h3>
-          <button onClick={() => setShowAddSubject(!showAddSubject)} className="text-slate-400 hover:text-blue-400"><Plus size={16}/></button>
+          <div className="flex items-center gap-3">
+            {/* MANUAL RESET BUTTON */}
+            <button onClick={nukeBunkMeter} className="text-slate-500 hover:text-red-400 transition-colors" title="Wipe Bunk Meter">
+              <RotateCcw size={16} />
+            </button>
+            <button onClick={() => setShowAddSubject(!showAddSubject)} className="text-slate-400 hover:text-blue-400"><Plus size={16}/></button>
+          </div>
         </div>
 
         {showAddSubject && (
           <div className="absolute top-10 right-2 left-2 bg-slate-800 border border-slate-600 rounded-md shadow-xl z-20 overflow-hidden font-sans">
             {(Array.isArray(weekSchedule) ? weekSchedule : []).flatMap(day => (day.classes || []).map((c: any) => c.name))
-              .filter((name, index, self) => name && self.indexOf(name) === index) // Safely get unique names
+              .filter((name, index, self) => name && self.indexOf(name) === index)
               .filter(name => !bunkMeter.some(b => b.subject === name))
               .map((name: any, idx) => (
                 <div key={idx} onClick={() => addBunkSubject(name)} className="p-2 text-xs font-bold text-slate-300 hover:bg-slate-700 cursor-pointer border-b border-slate-700/50 last:border-0 truncate">
@@ -469,7 +542,6 @@ export default function Daily() {
                   <div className="flex justify-between items-end mb-1 relative">
                     <span className="text-xs font-bold text-slate-300 truncate max-w-[70px] group-hover:opacity-0 transition-opacity">{sub.subject}</span>
                     
-                    {/* Hover Actions: Edit & Delete */}
                     <div className="absolute left-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
                       <button onClick={() => setEditingBunk(sub)} className="text-blue-400 hover:text-blue-300"><Edit2 size={12}/></button>
                       <button onClick={() => removeBunkSubject(sub.id)} className="text-red-500 hover:text-red-400"><Trash2 size={12}/></button>
@@ -493,7 +565,7 @@ export default function Daily() {
   );
 
   const renderComms = () => (
-    <div className="mb-8">
+    <div className="mb-8 tour-comms">
       <div className="flex items-center justify-between mb-2 border-b-2 border-slate-800 pb-2">
         <div>
           <div className="flex items-center gap-2">
@@ -561,7 +633,7 @@ export default function Daily() {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setShowArchives(true)}
-        className="fixed bottom-24 right-4 z-40 bg-blue-600 text-white p-4 rounded-2xl shadow-[0_10px_25px_rgba(37,99,235,0.4)] border-2 border-blue-400 flex items-center justify-center gap-2 group"
+        className="tour-acad-vault fixed bottom-24 right-4 z-40 bg-blue-600 text-white p-4 rounded-2xl shadow-[0_10px_25px_rgba(37,99,235,0.4)] border-2 border-blue-400 flex items-center justify-center gap-2 group"
       >
         <FolderOpen size={28} strokeWidth={2.5} />
       </motion.button>
@@ -630,13 +702,12 @@ export default function Daily() {
                 <button 
                   onClick={async () => {
                     try {
-                      // Call the new 3-Strike Route
                       const res = await axios.post(`${API_HOST}/daily/mess-menu/${messMenuData.id}/report?token=${token}`);
                       alert(res.data.message);
                       setShowMenuViewer(false);
-                      fetchDailyData(); // Refresh to see if it got deleted
+                      fetchDailyData();
                     } catch (e: any) {
-                      alert("Failed to report menu.");
+                      alert(e.response?.data?.detail || "Failed to report menu.");
                     }
                   }} 
                   className="py-4 px-6 font-black bg-slate-900 text-red-500 border-2 border-slate-800 rounded-xl flex items-center justify-center hover:bg-slate-800 transition-colors"
