@@ -610,7 +610,7 @@ export default function App() {
                                  (
                                    <>
                                      <option value="Unassigned" className="bg-slate-900 text-white font-caveat text-xl">Not Allotted</option>
-                                     {['Hostel A', 'Hostel B', 'Hostel C', 'Hostel D', 'Hostel E', 'Hostel F', 'Hostel G', 'Hostel H', 'Hostel I', 'Hostel J', 'Hostel K', 'Hostel L', 'Day Scholar'].map(h => <option key={h} value={h} className="bg-slate-900 text-white font-caveat text-xl">{h}</option>)}
+                                     {['Hostel A', 'Hostel B', 'Hostel C', 'Hostel D', 'Hostel E', 'Hostel F', 'Hostel G', 'Hostel H', 'Hostel I', 'Hostel J', 'Hostel K', 'Hostel L', 'Hostel M', 'Hostel N', 'Hostel O', 'Hostel Q', 'Day Scholar'].map(h => <option key={h} value={h} className="bg-slate-900 text-white font-caveat text-xl">{h}</option>)}
                                    </>
                                  )}
                               </select>
