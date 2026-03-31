@@ -48,7 +48,12 @@ export default function Vault() {
   const [showSplitUI, setShowSplitUI] = useState(false);
   const [showSettleAlert, setShowSettleAlert] = useState(false);
 
-  const getTodayString = () => new Date().toISOString().split('T')[0];
+  // FIX: Force local timezone instead of UTC so entries don't save in the past month!
+  const getTodayString = () => {
+    const offset = new Date().getTimezoneOffset() * 60000;
+    return new Date(Date.now() - offset).toISOString().split('T')[0];
+  };
+
   const [selectedId, setSelectedId] = useState<number | null>(null);
   
   const [formData, setFormData] = useState({
@@ -233,7 +238,7 @@ export default function Vault() {
       }
 
       closeModal();
-      fetchAllData();
+      await fetchAllData(); // FIX: Added await to ensure UI updates after backend finishes
     } catch (error: any) {
       const errDetail = error.response?.data?.detail;
       const msg = typeof errDetail === 'string' ? errDetail : JSON.stringify(errDetail, null, 2);
@@ -293,7 +298,7 @@ export default function Vault() {
       }
       
       closeModal();
-      fetchAllData();
+      await fetchAllData(); // FIX: Added await
     } catch (error) {
       console.error(`Failed to delete and sync:`, error);
     }
@@ -304,7 +309,7 @@ export default function Vault() {
     try {
       await axios.put(`${API_HOST}/ledger/settle/${selectedId}`);
       closeModal();
-      fetchAllData();
+      await fetchAllData(); // FIX: Added await
     } catch (error) {
       console.error("Failed to settle debt", error);
     }
