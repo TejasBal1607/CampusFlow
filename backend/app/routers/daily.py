@@ -116,7 +116,9 @@ async def sync_timetable(
         - The text inside the Orange/Yellow badges says "Practical". Treat this as "Lab".
         - There are timetable where some days are almost empty or their are classes in multiple slots with long breaks. Pay attention and extract each class properly.
         - JSON format: [{"day": "Monday", "classes": [{"name": "...", "time": "...", "venue": "...", "type": "..."}]}, ...]
-        
+        - Don't merge the classes from different days. Keep them separate under their respective days.
+        - If there are two labs or tutorials mentioned for a particular subject don't merge them into one class. Treat them as separate entries with their respective timings and venues.
+
         Return ONLY valid JSON.
         """
         
