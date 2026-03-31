@@ -70,7 +70,6 @@ const SectionHeader = ({ title, color }: { title: string, color: string }) => (
   </div>
 );
 
-// FIX: Added ': any' to completely bypass the driver.js strict type checking errors
 const createStep = (selector: string, title: string, description: string, side: string = "top"): any => ({
   element: selector,
   popover: { title, description, side, align: 'center' },
@@ -84,6 +83,8 @@ const createStep = (selector: string, title: string, description: string, side: 
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // FIX 1: New loading state for the full-screen spinner
+  const [isProfileLoading, setIsProfileLoading] = useState(true); 
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('Loading...'); 
   
@@ -151,38 +152,55 @@ export default function App() {
         steps: [
           { popover: { title: 'Welcome to CampusFLOW', description: 'Your campus OS is ready. Let us take a quick tour of your new grid.', align: 'center' } },
           createStep('.tour-home-widgets', 'At a Glance', 'Your quick overview. See your immediate balances and recent grid activity right here.', 'bottom'),
-          createStep('.tour-settings', 'Your Identity', 'Click the gear to update your batch, hostel, stream, and alerts.', 'left'),
+          createStep('.tour-settings', 'Your Identity', 'Click the gear to update your batch, hostel, stream, and more.', 'left'),
           
-          createStep('.tour-vault-nav', 'The Vault', 'Your financial safe and academic database.', 'top'),
+          createStep('.tour-vault-nav', 'The Vault', 'Your financial ledger.', 'top'),
+          createStep('.tour-vault-budget', 'Set Monthly Budget', 'You can easily start by clicking the Edit icon to set your monthly budget.', 'top'),
           createStep('.tour-vault-exp', 'Expenses', 'Track what you have spent this month.', 'bottom'),
           createStep('.tour-vault-net', 'Net Cash In', 'Your total budget and incomes combined.', 'bottom'),
           createStep('.tour-vault-sav', 'Savings', 'Money locked away in your Vault Cache.', 'bottom'),
           createStep('.tour-vault-avail', 'Available Cash', 'What you can safely spend right now.', 'bottom'),
-          createStep('.tour-vault-budget', 'Set Monthly Budget', 'Click the Edit icon to set your spending limit for the month.', 'top'),
-          createStep('.tour-vault-ledger', 'Debt Ledger', 'Keep track of who owes you, and who you owe. No more lost money.', 'top'),
-          createStep('.tour-vault-avg', 'Burn Rate Averages', 'We calculate your "Needed Burn Rate" based on days left, so you know your exact daily allowance.', 'top'),
+          createStep('.tour-vault-ledger', 'Debt Ledger', 'Keep track of who owes you, and who you owe. No more lost money!.', 'top'),
+          createStep('.tour-vault-avg', 'The Averages', 'We calculate your ideal burn rate and also show your current and needed burn rate according to your spendings.', 'top'),
           createStep('.tour-vault-alloc', 'Resource Allocation', 'A visual breakdown of where your money is actually going.', 'top'),
-          createStep('.tour-vault-export', 'Export Data', 'Generate a clean PDF report of your entire transaction history and ledger.', 'top'),
+          createStep('.tour-vault-export', 'Export Data', 'Generate a clean PDF report of your entire month\'s activity.', 'top'),
 
-          createStep('.tour-vault-log', 'Expense Logs', 'Here is your detailed history. You can click on any entry to edit or delete it.', 'top'),
+          createStep('.tour-vault-log', 'Logs', 'Lets dive deeper and see the logs. For example in this expense tab where you can view, create, edit and delete your expenses', 'top'),
           createStep('.tour-vault-add', 'Add Expense', 'Click the + button to log a new expense.', 'left'),
           createStep('.tour-vault-modal', 'Expense Editor', 'Fill in the details manually, or use our smart tools.', 'top'),
-          createStep('.tour-vault-ocr', 'AI Receipt Scanner', 'Click the Camera icon to scan a receipt. Our AI instantly extracts the Amount, Vendor, and Category!', 'bottom'),
-          createStep('.tour-vault-split', 'Split Bills', 'Ate with friends? Click Split, search their name, and we will automatically add it to your mutual Debt Ledgers.', 'top'),
+          createStep('.tour-vault-ocr', 'AI Receipt Scanner', 'Click the Camera icon to scan a upi payment screenshot. Our AI instantly extracts the required data which you can edit before saving.', 'bottom'),
+          createStep('.tour-vault-split', 'Split Bills', 'Ate with friends? Click Split, search their name or number, and we will automatically add it to your mutual Debt Ledgers.', 'top'),
           createStep('.tour-vault-repeat', 'Recurring Subscriptions', 'Click Monthly for Spotify, Netflix, or Gym fees, and we will log it automatically every month.', 'top'),
 
-          createStep('.tour-daily-nav', 'The Daily Hub', 'Everything you need for campus life today.', 'top'),
+          createStep('.tour-daily-nav', 'The Daily Hub', 'Everything you need for academic or hostel life today.', 'top'),
           createStep('.tour-class-tracker', 'Live Class Tracker', 'Watch the minutes tick down for your active class, and mark attendance instantly.', 'bottom'),
-          createStep('.tour-weekly-tt', 'Weekly Timetable', 'Click the Date to view your full weekly schedule. You can sync the AI here if your batch timetable is missing!', 'bottom'),
+          createStep('.tour-weekly-tt', 'Weekly Timetable', 'Click the Date to view your full weekly schedule. You can be the hero and upload the timetable if it is missing!', 'bottom'),
           createStep('.tour-mess-menu', 'Mess Menu', 'Today\'s menu for your hostel. If it is empty, snap a picture to upload it for everyone.', 'bottom'),
-          createStep('.tour-bunk-meter', 'The Bunk Meter', 'Add your subjects. We calculate exactly how many classes you need to hit 75%, or how many you can safely bunk.', 'top'),
+          createStep('.tour-bunk-meter', 'The Bunk Meter', 'Track your subjects. We calculate exactly how many classes you need to hit 75%, or how many you can safely bunk.', 'top'),
           createStep('.tour-comms', 'Comms Radar', 'Targeted broadcasts. You will only see alerts meant for your specific batch, stream, or hostel.', 'top'),
-          createStep('.tour-acad-vault', 'Acad Vault', 'Access structured PYQs, notes, and study material specific to your Year and Stream.', 'left'),
+          createStep('.tour-acad-vault', 'Acad Vault', 'Access PYQs, notes, and study material organised neatly into various folders.', 'left'),
 
           createStep('.tour-bazaar-nav', 'The Bazaar', 'Your campus marketplace and event hub.', 'top'),
           createStep('.tour-bazaar-content', 'Coming Soon', 'Buy/Sell 2nd hand items safely, use the Thapar Navigator, and discover campus events here soon!', 'top'),
 
-          { popover: { title: 'Community Rules', description: 'CampusFLOW relies on crowdsourcing. If you upload fake Mess Menus or inappropriate resources, the community will flag it. 3 strikes and you lose upload privileges for a week. Play nice, and enjoy the grid!', align: 'center' } },
+          // FIX 3: HTML INJECTION FOR WARNING SHIELD
+          { 
+            popover: { 
+              title: '', 
+              description: `
+                <div style="display: flex; flex-direction: column; align-items: center; text-align: center; margin-top: 10px;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 12px;">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                  </svg>
+                  <p style="color: #ef4444; font-weight: 900; font-size: 1.2rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-family: ui-sans-serif, system-ui;">Report and Ban Policy Active</p>
+                  <p style="color: #94a3b8; font-size: 1rem; font-family: ui-sans-serif, system-ui; line-height: 1.5; font-weight: bold;">CampusFLOW relies on crowdsourcing. Uploading fake menus or inappropriate resources will result in an immediate ban.<br/><br/>Play nice, and enjoy the grid!</p>
+                </div>
+              `, 
+              align: 'center' 
+            } 
+          },
         ],
         onDestroyed: () => {
           window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'none' }));
@@ -233,6 +251,8 @@ export default function App() {
     if (token) {
       setIsAuthenticated(true);
       fetchProfile(token);
+    } else {
+      setIsProfileLoading(false); // Stop loading if no token is found
     }
   }, []);
 
@@ -266,6 +286,8 @@ export default function App() {
     } catch (err: any) { 
       if (err.response?.status === 403) alert(err.response.data.detail);
       handleLogout(); 
+    } finally {
+      setIsProfileLoading(false); // Stop loading regardless of success or failure
     }
   };
 
@@ -286,6 +308,7 @@ export default function App() {
     localStorage.setItem('cf_token', token);
     localStorage.setItem('cf_name', name);
     setIsAuthenticated(true);
+    setIsProfileLoading(true); // Restart loader for the new login
     fetchProfile(token);
   };
 
@@ -374,6 +397,17 @@ export default function App() {
     );
   }
 
+  // --- NEW FULL SCREEN LOADING STATE ---
+  if (isProfileLoading) {
+    return (
+      <div className="min-h-[100dvh] bg-slate-950 flex flex-col items-center justify-center p-4 font-caveat text-center">
+        <RefreshCw size={48} className="animate-spin text-blue-500 mb-6" />
+        <h2 className="text-4xl font-black text-white uppercase tracking-widest mb-2 drop-shadow-lg">Entering the Grid</h2>
+        <p className="text-xl text-slate-400 font-sans font-bold">Your ultimate campus experience is loading. Please wait...</p>
+      </div>
+    );
+  }
+
   if (needsSetup) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-caveat">
@@ -419,18 +453,51 @@ export default function App() {
   return (
     <div className="bg-slate-950 min-h-[100dvh] text-slate-100 font-caveat flex flex-col relative">       
       
+      {/* FIX 2 & 3: UPGRADED DRIVER.JS CSS */}
       <style dangerouslySetInnerHTML={{__html: `
         .driverjs-theme {
-          background-color: #0f172a;
-          color: #f8fafc;
-          border: 2px solid #3b82f6;
-          border-radius: 12px;
-          font-family: ui-sans-serif, system-ui, -apple-system;
+          background-color: #0f172a !important;
+          color: #f8fafc !important;
+          border: 2px solid #3b82f6 !important;
+          border-radius: 16px !important;
+          font-family: 'Caveat', cursive, sans-serif !important;
+          box-shadow: 0 10px 25px rgba(59, 130, 246, 0.2) !important;
         }
-        .driver-popover-title { color: #3b82f6; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;}
-        .driver-popover-description { color: #94a3b8; font-size: 14px; line-height: 1.5;}
-        .driver-popover-next-btn, .driver-popover-prev-btn { background-color: #3b82f6; color: white; border: none; font-weight: bold; border-radius: 6px; text-shadow: none;}
-        .driver-popover-close-btn { color: #64748b; }
+        .driver-popover-title { 
+          color: #3b82f6 !important; 
+          font-weight: 900 !important; 
+          font-size: 28px !important;
+          text-transform: uppercase !important; 
+          letter-spacing: 1px !important; 
+          margin-bottom: 8px !important;
+          font-family: 'Caveat', cursive !important;
+        }
+        .driver-popover-description { 
+          color: #94a3b8 !important; 
+          font-size: 22px !important; 
+          line-height: 1.2 !important;
+          font-family: 'Caveat', cursive !important;
+          font-weight: 700 !important;
+        }
+        .driver-popover-footer {
+          margin-top: 12px !important;
+        }
+        .driver-popover-next-btn, .driver-popover-prev-btn { 
+          background-color: #3b82f6 !important; 
+          color: white !important; 
+          border: 2px solid #2563eb !important; 
+          font-weight: 900 !important; 
+          border-radius: 8px !important; 
+          text-shadow: none !important;
+          text-transform: uppercase !important;
+          padding: 4px 12px !important;
+          font-family: 'Caveat', cursive !important;
+          font-size: 18px !important;
+        }
+        .driver-popover-next-btn:hover, .driver-popover-prev-btn:hover {
+          background-color: #2563eb !important;
+        }
+        .driver-popover-close-btn { color: #ef4444 !important; }
       `}} />
 
       <motion.header className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-4 sm:px-5 bg-slate-950/90 backdrop-blur-md z-50 border-b-2 border-slate-800 border-dashed">

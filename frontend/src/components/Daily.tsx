@@ -31,7 +31,8 @@ export default function Daily() {
   const token = localStorage.getItem('cf_token');
   const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).sub : 'guest';
   
-  const getTodayKey = () => `cf_attendance_${currentUserId}_${new Date().toLocaleDateString('en-CA')}`;
+  // FIX 4: Centralized standard key so attendance saves and loads from the exact same place!
+  const getTodayKey = () => `cf_attn_${currentUserId}_${new Date().toLocaleDateString('en-CA')}`;
   
   const [isLoading, setIsLoading] = useState(true);
   const [showArchives, setShowArchives] = useState(false);
@@ -105,7 +106,8 @@ export default function Daily() {
         const todayData = timeRes.data.find((d: any) => d.day === currentDay);
         
         if (todayData && todayData.classes) {
-          const storageKey = `cf_attn_${userEmail}_${new Date().toLocaleDateString('en-CA')}`;
+          // Loads using the standard getTodayKey()
+          const storageKey = getTodayKey();
           const savedState = JSON.parse(localStorage.getItem(storageKey) || '{}');
 
           const mappedClasses = todayData.classes.map((c: any, i: number) => {
@@ -207,6 +209,7 @@ export default function Daily() {
   const handleMarkAttendance = async (classId: number, subjectName: string, status: 'attended' | 'bunked' | 'cancelled' | null) => {
     setTodayClasses(classes => classes.map(c => c.id === classId ? { ...c, attendance: status } : c));
     
+    // Saves using the standard getTodayKey()
     const storageKey = getTodayKey();
     const savedState = JSON.parse(localStorage.getItem(storageKey) || '{}');
     if (status === null) delete savedState[subjectName];
@@ -248,7 +251,6 @@ export default function Daily() {
     setShowAddSubject(false);
     try {
       await axios.post(`${API_HOST}/daily/bunk?token=${token}`, { subject: name });
-      // FIX: Only fetch Bunk Meter to prevent undefined updates!
       const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
       setBunkMeter(bunkRes.data);
     } catch (error) { console.error("Failed to add bunk subject", error); }
@@ -496,7 +498,6 @@ export default function Daily() {
         <div className="flex items-center justify-between border-b-2 border-slate-800 pb-2 mb-3">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Bunk Meter</h3>
           <div className="flex items-center gap-3">
-            {/* MANUAL RESET BUTTON */}
             <button onClick={nukeBunkMeter} className="text-slate-500 hover:text-red-400 transition-colors" title="Wipe Bunk Meter">
               <RotateCcw size={16} />
             </button>
@@ -702,7 +703,7 @@ export default function Daily() {
                 <button 
                   onClick={async () => {
                     try {
-                      const res = await axios.post(`${API_HOST}/daily/mess-menu/${messMenuData.id}/report?token=${token}`);
+                      const res = await axios.post(`${API_HOST}/daily/mess-menu/${messMenuData.id}/report?token=${token}`, {});
                       alert(res.data.message);
                       setShowMenuViewer(false);
                       fetchDailyData();
