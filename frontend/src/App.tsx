@@ -41,7 +41,7 @@ const getThaparBatches = (targetYear: number | null) => {
   return batches;
 };
 
-const THAPAR_STREAMS = ['COE', 'COBS', 'COPC', 'ENC', 'EEC', 'ECE', 'MEE', 'CIE', 'CHE', 'BME', 'BT'];
+const THAPAR_STREAMS = ['COE', 'COBS', 'COPC', 'DSAI', 'RAI', 'ENC', 'EEC', 'ECE', 'MEE', 'CIE', 'CHE', 'BME', 'BT'];
 
 const getJoiningYear = (email: string) => {
   const match = email?.match(/_be(\d{2})@thapar\.edu/);
