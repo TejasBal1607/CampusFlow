@@ -3,6 +3,8 @@ import Dashboard from './components/Dashboard';
 import Vault from './components/Vault';
 import Auth from './components/Auth';
 import Daily from './components/Daily';
+import Bazaar from './components/Bazaar';
+import Navigator from './components/Navigator';
 import AdminDashboard from './components/Admin';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -70,14 +72,20 @@ const SectionHeader = ({ title, color }: { title: string, color: string }) => (
   </div>
 );
 
-const createStep = (selector: string, title: string, description: string, side: string = "top"): any => ({
+// UPGRADED: Now handles dynamic tab switching on Next AND Previous
+const createStep = (selector: string, title: string, description: string, side: string = "top", tabTarget: string | null = null): any => ({
   element: selector,
   popover: { title, description, side, align: 'center' },
   onHighlightStarted: () => {
-    const el = document.querySelector(selector);
-    if (el) {
-      el.scrollIntoView({ behavior: 'instant', block: 'center' });
+    // 1. Fire the custom event to switch tabs BEFORE highlighting
+    if (tabTarget) {
+      window.dispatchEvent(new CustomEvent('tour-tab-switch', { detail: tabTarget }));
     }
+    // 2. Wait a split second for React to render the new tab, then scroll
+    setTimeout(() => {
+      const el = document.querySelector(selector);
+      if (el) el.scrollIntoView({ behavior: 'instant', block: 'center' });
+    }, 100);
   }
 });
 
@@ -154,34 +162,34 @@ export default function App() {
           createStep('.tour-home-widgets', 'At a Glance', 'Your quick overview. See your immediate balances and recent grid activity right here.', 'bottom'),
           createStep('.tour-settings', 'Your Identity', 'Click the gear to update your batch, hostel, stream, and more.', 'left'),
           
-          createStep('.tour-vault-nav', 'The Vault', 'Your financial ledger.', 'top'),
-          createStep('.tour-vault-budget', 'Set Monthly Budget', 'You can easily start by clicking the Edit icon to set your monthly budget.', 'top'),
-          createStep('.tour-vault-exp', 'Expenses', 'Track what you have spent this month.', 'bottom'),
-          createStep('.tour-vault-net', 'Net Cash In', 'Your total budget and incomes combined.', 'bottom'),
-          createStep('.tour-vault-sav', 'Savings', 'Money locked away in your Vault Cache.', 'bottom'),
-          createStep('.tour-vault-avail', 'Available Cash', 'What you can safely spend right now.', 'bottom'),
-          createStep('.tour-vault-ledger', 'Debt Ledger', 'Keep track of who owes you, and who you owe. No more lost money!.', 'top'),
-          createStep('.tour-vault-avg', 'The Averages', 'We calculate your ideal burn rate and also show your current and needed burn rate according to your spendings.', 'top'),
-          createStep('.tour-vault-alloc', 'Resource Allocation', 'A visual breakdown of where your money is actually going.', 'top'),
-          createStep('.tour-vault-export', 'Export Data', 'Generate a clean PDF report of your entire month\'s activity.', 'top'),
+          createStep('.tour-vault-nav', 'The Vault', 'Your financial ledger.', 'top', 'vault'),
+          createStep('.tour-vault-budget', 'Set Monthly Budget', 'You can easily start by clicking the Edit icon to set your monthly budget.', 'top', 'vault'),
+          createStep('.tour-vault-exp', 'Expenses', 'Track what you have spent this month.', 'bottom', 'vault'),
+          createStep('.tour-vault-net', 'Net Cash In', 'Your total budget and incomes combined.', 'bottom', 'vault'),
+          createStep('.tour-vault-sav', 'Savings', 'Money locked away in your Vault Cache.', 'bottom', 'vault'),
+          createStep('.tour-vault-avail', 'Available Cash', 'What you can safely spend right now.', 'bottom', 'vault'),
+          createStep('.tour-vault-ledger', 'Debt Ledger', 'Keep track of who owes you, and who you owe. No more lost money!.', 'top', 'vault'),
+          createStep('.tour-vault-avg', 'The Averages', 'We calculate your ideal burn rate and also show your current and needed burn rate according to your spendings.', 'top', 'vault'),
+          createStep('.tour-vault-alloc', 'Resource Allocation', 'A visual breakdown of where your money is actually going.', 'top', 'vault'),
+          createStep('.tour-vault-export', 'Export Data', 'Generate a clean PDF report of your entire month\'s activity.', 'top', 'vault'),
 
-          createStep('.tour-vault-log', 'Logs', 'Lets dive deeper and see the logs. For example in this expense tab where you can view, create, edit and delete your expenses', 'top'),
-          createStep('.tour-vault-add', 'Add Expense', 'Click the + button to log a new expense.', 'left'),
-          createStep('.tour-vault-modal', 'Expense Editor', 'Fill in the details manually, or use our smart tools.', 'top'),
-          createStep('.tour-vault-ocr', 'AI Receipt Scanner', 'Click the Camera icon to scan a upi payment screenshot. Our AI instantly extracts the required data which you can edit before saving.', 'bottom'),
-          createStep('.tour-vault-split', 'Split Bills', 'Ate with friends? Click Split, search their name or number, and we will automatically add it to your mutual Debt Ledgers.', 'top'),
-          createStep('.tour-vault-repeat', 'Recurring Subscriptions', 'Click Monthly for Spotify, Netflix, or Gym fees, and we will log it automatically every month.', 'top'),
+          createStep('.tour-vault-log', 'Logs', 'Lets dive deeper and see the logs. For example in this expense tab where you can view, create, edit and delete your expenses', 'top', 'vault'),
+          createStep('.tour-vault-add', 'Add Expense', 'Click the + button to log a new expense.', 'left', 'vault'),
+          createStep('.tour-vault-modal', 'Expense Editor', 'Fill in the details manually, or use our smart tools.', 'top', 'vault'),
+          createStep('.tour-vault-ocr', 'AI Receipt Scanner', 'Click the Camera icon to scan a upi payment screenshot. Our AI instantly extracts the required data which you can edit before saving.', 'bottom', 'vault'),
+          createStep('.tour-vault-split', 'Split Bills', 'Ate with friends? Click Split, search their name or number, and we will automatically add it to your mutual Debt Ledgers.', 'top', 'vault'),
+          createStep('.tour-vault-repeat', 'Recurring Subscriptions', 'Click Monthly for Spotify, Netflix, or Gym fees, and we will log it automatically every month.', 'top', 'vault'),
 
-          createStep('.tour-daily-nav', 'The Daily Hub', 'Everything you need for academic or hostel life today.', 'top'),
-          createStep('.tour-class-tracker', 'Live Class Tracker', 'Watch the minutes tick down for your active class, and mark attendance instantly.', 'bottom'),
-          createStep('.tour-weekly-tt', 'Weekly Timetable', 'Click the Date to view your full weekly schedule. You can be the hero and upload the timetable if it is missing!', 'bottom'),
-          createStep('.tour-mess-menu', 'Mess Menu', 'Today\'s menu for your hostel. If it is empty, snap a picture to upload it for everyone.', 'bottom'),
-          createStep('.tour-bunk-meter', 'The Bunk Meter', 'Track your subjects. We calculate exactly how many classes you need to hit 75%, or how many you can safely bunk.', 'top'),
-          createStep('.tour-comms', 'Comms Radar', 'Targeted broadcasts. You will only see alerts meant for your specific batch, stream, or hostel.', 'top'),
-          createStep('.tour-acad-vault', 'Acad Vault', 'Access PYQs, notes, and study material organised neatly into various folders.', 'left'),
+          createStep('.tour-daily-nav', 'The Daily Hub', 'Everything you need for academic or hostel life today.', 'top', 'daily'),
+          createStep('.tour-class-tracker', 'Live Class Tracker', 'Watch the minutes tick down for your active class, and mark attendance instantly.', 'bottom', 'daily'),
+          createStep('.tour-weekly-tt', 'Weekly Timetable', 'Click the Date to view your full weekly schedule. You can be the hero and upload the timetable if it is missing!', 'bottom', 'daily'),
+          createStep('.tour-mess-menu', 'Mess Menu', 'Today\'s menu for your hostel. If it is empty, snap a picture to upload it for everyone.', 'bottom', 'daily'),
+          createStep('.tour-bunk-meter', 'The Bunk Meter', 'Track your subjects. We calculate exactly how many classes you need to hit 75%, or how many you can safely bunk.', 'top', 'daily'),
+          createStep('.tour-comms', 'Comms Radar', 'Targeted broadcasts. You will only see alerts meant for your specific batch, stream, or hostel.', 'top', 'daily'),
+          createStep('.tour-acad-vault', 'Acad Vault', 'Access PYQs, notes, and study material organised neatly into various folders.', 'left', 'daily'),
 
-          createStep('.tour-bazaar-nav', 'The Bazaar', 'Your campus marketplace and event hub.', 'top'),
-          createStep('.tour-bazaar-content', 'Coming Soon', 'Buy/Sell 2nd hand items safely, use the Thapar Navigator, and discover campus events here soon!', 'top'),
+          createStep('.tour-bazaar-nav', 'The Bazaar', 'Your campus marketplace and event hub.', 'top', 'bazaar'),
+          createStep('.tour-bazaar-content', 'Coming Soon', 'Buy/Sell 2nd hand items safely, use the Thapar Navigator, and discover campus events here soon!', 'top', 'bazaar'),
 
           // FIX 3: HTML INJECTION FOR WARNING SHIELD
           { 
@@ -254,6 +262,12 @@ export default function App() {
     } else {
       setIsProfileLoading(false); // Stop loading if no token is found
     }
+  }, []);
+
+  useEffect(() => {
+    const handleTourTabSwitch = (e: any) => setActiveTab(e.detail);
+    window.addEventListener('tour-tab-switch', handleTourTabSwitch);
+    return () => window.removeEventListener('tour-tab-switch', handleTourTabSwitch);
   }, []);
 
   const fetchProfile = async (token: string) => {
@@ -500,8 +514,7 @@ export default function App() {
         .driver-popover-close-btn { color: #ef4444 !important; }
       `}} />
 
-      <motion.header className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-4 sm:px-5 bg-slate-950/90 backdrop-blur-md z-50 border-b-2 border-slate-800 border-dashed">
-        
+      <motion.header className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-4 sm:px-5 bg-slate-950/90 backdrop-blur-md z-[100] border-b-2 border-slate-800 border-dashed">  
         <div className="flex items-center gap-2"> 
           <span className="text-3xl font-black text-slate-100 tracking-tight">Campus<span className="text-blue-500">FLOW</span></span>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" className="w-10 h-10 mb-1">
@@ -544,18 +557,13 @@ export default function App() {
             {activeTab === 'daily' && <Daily />}
             {activeTab === 'admin' && isAdmin && <AdminDashboard navigateTo={navigateTo} />}
             
-            {activeTab === 'bazaar' && (
-              <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4 tour-bazaar-content">
-                <ShoppingBag size={64} className="text-slate-700 mb-4" />
-                <h2 className="text-3xl font-black text-slate-400 uppercase tracking-widest mb-2">The Bazaar</h2>
-                <p className="text-slate-500 font-sans font-bold leading-relaxed">2nd Hand Store • Thapar Navigator • Events<br/>Coming Soon.</p>
-              </div>
-            )}
+            {activeTab === 'bazaar' && <Bazaar navigateTo={setActiveTab} />}
+            {activeTab === 'navigator' && <Navigator />}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-md border-t-2 border-slate-800 border-dashed px-4 py-3 flex justify-around">
+      <nav className="fixed bottom-0 left-0 right-0 z-[100] bg-slate-950/95 backdrop-blur-md border-t-2 border-slate-800 border-dashed px-4 py-3 flex justify-around pointer-events-auto">
         {navItems.map(item => (
           <button key={item.id} onClick={() => setActiveTab(item.id)} className={`tour-${item.id}-nav flex flex-col items-center gap-1 px-4 ${activeTab === item.id ? 'text-slate-100' : 'text-slate-500'}`}>
             <item.icon size={26} />

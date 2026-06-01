@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -66,103 +67,68 @@ class BunkManualUpdate(BaseModel):
 # ==========================================
 # TIMETABLE SYNC ROUTES
 # ==========================================
+MASTER_TIMETABLE = {}
+TIMETABLE_FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "master_timetable.json")
+if os.path.exists(TIMETABLE_FILE_PATH):
+    with open(TIMETABLE_FILE_PATH, "r") as f:
+        MASTER_TIMETABLE = json.load(f)
+
+def normalize_request_batch(batch_str: str):
+    """Converts user input '2E1A' into '2E11' to match JSON keys."""
+    batch_str = re.sub(r'\s+', '', str(batch_str).upper())
+    mapping = {'A': '1', 'B': '2', 'C': '3', 'D': '4', 'E': '5', 'F': '6', 'G': '7', 'H': '8'}
+    if not batch_str: return batch_str
+    
+    if len(batch_str) >= 4 and batch_str[-1].isalpha() and batch_str[-1] in mapping and batch_str[-2].isdigit():
+        return batch_str[:-1] + mapping[batch_str[-1]]
+    return batch_str
+
 @router.get("/timetable")
 async def get_timetable(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     batch = current_user.batch
-    if not batch:
+    if not batch or batch == "Unassigned":
         raise HTTPException(status_code=400, detail="User batch not set.")
 
-    cached_schedule = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
-    
-    if cached_schedule and cached_schedule.schedule_data:
-        return cached_schedule.schedule_data
+    batch_key = normalize_request_batch(batch)
+    main_group_key = batch_key[:-1] if len(batch_key) >= 4 else batch_key
 
-    raise HTTPException(status_code=404, detail="Timetable not synced yet.")
+    user_schedule = [{"day": d, "classes": []} for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']]
+    found_data = False
+
+    # Grab Lectures
+    if main_group_key in MASTER_TIMETABLE:
+        found_data = True
+        for i, day in enumerate(MASTER_TIMETABLE[main_group_key]):
+            user_schedule[i]["classes"].extend(day["classes"])
+
+    # Grab Labs/Tutorials
+    if batch_key in MASTER_TIMETABLE:
+        found_data = True
+        for i, day in enumerate(MASTER_TIMETABLE[batch_key]):
+            user_schedule[i]["classes"].extend(day["classes"])
+
+    if not found_data:
+        raise HTTPException(status_code=404, detail="Timetable not found for your batch.")
+
+    # Chronological sort
+    def time_to_mins(time_str):
+        try:
+            hm, period = time_str.split(' ')
+            h, m = map(int, hm.split(':'))
+            if period == 'PM' and h != 12: h += 12
+            if period == 'AM' and h == 12: h = 0
+            return h * 60 + m
+        except: return 0
+
+    for day in user_schedule:
+        day["classes"] = sorted(day["classes"], key=lambda c: time_to_mins(c["time"]))
+
+    return user_schedule
 
 @router.post("/timetable/sync")
-async def sync_timetable(
-    image: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    batch = current_user.batch
-    if not batch:
-        raise HTTPException(status_code=400, detail="User batch not set.")
-        
-    img_data = await image.read()
+async def sync_timetable():
+    raise HTTPException(status_code=400, detail="Timetables are centrally automated now!")
 
-    cache = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
-    
-    if cache:
-        db_time = cache.updated_at.replace(tzinfo=None)
-        time_since_update = datetime.utcnow() - db_time
-        if time_since_update < timedelta(hours=24):
-            hours_left = 24 - (time_since_update.total_seconds() / 3600)
-            raise HTTPException(
-                status_code=429, 
-                detail=f"Timetable for {batch} was already synced recently. Please wait {hours_left:.1f} hours before syncing again."
-            )
-    
-    try:
-        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-        
-        prompt = """
-        STEP 1: Verify if this image is a college class timetable. 
-        If it is NOT a timetable, return exactly: {"error": "not_a_timetable"}
-        
-        STEP 2: If it IS a timetable, extract the schedule into a strict JSON format for exactly 5 days (Monday-Friday).
-        
-        CRITICAL INSTRUCTIONS:
-        - The text inside the Orange/Yellow badges says "Practical". Treat this as "Lab".
-        - There are timetable where some days are almost empty or their are classes in multiple slots with long breaks. Pay attention and extract each class properly.
-        - JSON format: [{"day": "Monday", "classes": [{"name": "...", "time": "...", "venue": "...", "type": "..."}]}, ...]
-        - Don't merge the classes from different days. Keep them separate under their respective days.
-        - If there are two labs or tutorials mentioned for a particular subject don't merge them into one class. Treat them as separate entries with their respective timings and venues.
-
-        Return ONLY valid JSON.
-        """
-        
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                types.Part.from_bytes(data=img_data, mime_type=image.content_type),
-                prompt
-            ]
-        )
-        
-        raw_text = response.text.strip().replace('```json', '').replace('```', '')
-        structured_data = json.loads(raw_text)
-        
-        if isinstance(structured_data, list):
-            for day in structured_data:
-                for c in day.get('classes', []):
-                    if 'start_time' in c:
-                        c['time'] = f"{c['start_time']} - {c.get('end_time', '')}".strip(" -")
-                    if c.get('type') == 'Practical':
-                        c['type'] = 'Lab'
-
-        if isinstance(structured_data, dict) and structured_data.get("error") == "not_a_timetable":
-            raise HTTPException(status_code=400, detail="Nice try, but that's not a timetable. Upload the real deal!")
-
-        all_classes = [c for day in structured_data for c in day.get('classes', [])]
-        if len(all_classes) < 3:
-            raise HTTPException(status_code=400, detail="This timetable looks empty or invalid.")
-        
-        existing_cache = db.query(models.TimetableCache).filter(models.TimetableCache.batch == batch).first()
-        if existing_cache:
-            existing_cache.schedule_data = structured_data
-        else:
-            db.add(models.TimetableCache(batch=batch, schedule_data=structured_data))
-            
-        db.commit()
-        return structured_data
-        
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=422, detail="The AI got confused. Try a clearer screenshot.")
-    except Exception as e:
-        db.rollback()
-        print(f"Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
 # COMMS RADAR ROUTES
