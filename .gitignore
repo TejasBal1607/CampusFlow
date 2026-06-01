@@ -8,8 +8,13 @@ __pycache__/
 node_modules/
 dist/
 build/
+assets/
 
 # OS Files
 .DS_Store
 Thumbs.db
 backend/.env
+*.pdf
+*.xls
+*.xlsx
+*.gif
