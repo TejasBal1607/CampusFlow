@@ -51,17 +51,14 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
       
       {/* 🚀 THE DYNAMIC HEADER NAV */}
       <div 
-        className={`z-50 flex items-center justify-between transition-all duration-500 ease-in-out ${
+        className={`z-50 flex items-center w-full transition-all duration-500 ease-in-out ${
           activeTab === 'events'
-            ? 'absolute top-4 left-1/2 -translate-x-1/2 scale-90 origin-top' // Centers and shrinks the pill
-            : 'sticky top-20 mb-6 px-4 pt-2' 
+            ? 'absolute top-4 left-1/2 -translate-x-1/2 scale-90 origin-top justify-center' // Centers and shrinks the pill
+            : 'sticky top-20 mb-6 px-4 pt-2 justify-between gap-2' // Pill left, Map right, no overflow
         }`}
       >
-        {/* Hide left spacer when in events to allow perfect centering */}
-        {activeTab === 'market' && <div className="flex-1"></div>}
-
         {/* The Pill */}
-        <div className={`flex space-x-1 rounded-full border-2 border-slate-700 shadow-[0px_4px_0px_#000] transition-all duration-300 ${
+        <div className={`flex space-x-1 rounded-full border-2 border-slate-700 shadow-[0px_4px_0px_#000] transition-all duration-300 shrink-0 ${
           activeTab === 'events' ? 'bg-slate-950/80 backdrop-blur-md p-1.5' : 'bg-slate-900 p-1.5'
         }`}>
           {(['market', 'events'] as const).map((tab) => (
@@ -69,7 +66,7 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`relative flex items-center justify-center rounded-full font-bold tracking-wide transition-all duration-300 ${
-                activeTab === 'events' ? 'p-3' : 'px-5 py-2.5 text-sm'
+                activeTab === 'events' ? 'p-3' : 'px-3 sm:px-5 py-2.5 text-xs sm:text-sm'
               } ${
                 activeTab === tab ? 'text-slate-900' : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -82,12 +79,11 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
                 />
               )}
               
-              <span className="relative z-10 flex items-center justify-center gap-2 whitespace-nowrap">
+              <span className="relative z-10 flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap">
                 {tab === 'market' 
                   ? <ShoppingBag size={activeTab === 'events' ? 20 : 18} className="shrink-0" /> 
                   : <Ticket size={activeTab === 'events' ? 20 : 18} className="shrink-0" />
                 }
-                {/* Dynamically hide text in events tab for true icon-only mode */}
                 {activeTab === 'market' && (
                   <span>{tab === 'market' ? 'Marketplace' : 'Campus Events'}</span>
                 )}
@@ -96,16 +92,14 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
           ))}
         </div>
 
-        {/* Hide Map button when in events to keep UI clean and centered */}
+        {/* Map Button (No longer wrapped in a flex-1 spacer!) */}
         {activeTab === 'market' && (
-          <div className="flex-1 flex justify-end">
-            <button 
-              onClick={() => navigateTo('navigator')} 
-              className="bg-lime-400 rounded-full border-2 border-slate-900 flex items-center justify-center text-slate-950 hover:bg-lime-300 transition-all shadow-[4px_4px_0px_#000] w-12 h-12 hover:-translate-y-1"
-            >
-              <MapPin size={24} strokeWidth={2.5} />
-            </button>
-          </div>
+          <button 
+            onClick={() => navigateTo('navigator')} 
+            className="shrink-0 bg-lime-400 rounded-full border-2 border-slate-900 flex items-center justify-center text-slate-950 hover:bg-lime-300 transition-all shadow-[4px_4px_0px_#000] w-12 h-12 hover:-translate-y-1"
+          >
+            <MapPin size={24} strokeWidth={2.5} />
+          </button>
         )}
       </div>
 
