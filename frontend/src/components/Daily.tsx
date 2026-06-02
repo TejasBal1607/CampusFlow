@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, MapPin, Camera, Radio, FolderOpen, X, Search, Plus, CheckCircle2, XCircle, Slash, ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, Loader2, AlertTriangle, CalendarDays, Target, UploadCloud, Flag, Edit2 } from 'lucide-react';
+import { Clock, MapPin, Camera, Radio, FolderOpen, X, Search, Plus, CheckCircle2, XCircle, Slash, ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, Loader2, AlertTriangle, CalendarDays, Target, UploadCloud, Flag, Edit2, CheckSquare } from 'lucide-react';
 
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
@@ -31,7 +31,6 @@ export default function Daily() {
   const token = localStorage.getItem('cf_token');
   const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).sub : 'guest';
   
-  // FIX 4: Centralized standard key so attendance saves and loads from the exact same place!
   const getTodayKey = () => `cf_attn_${currentUserId}_${new Date().toLocaleDateString('en-CA')}`;
   
   const [isLoading, setIsLoading] = useState(true);
@@ -74,6 +73,11 @@ export default function Daily() {
   const [newComm, setNewComm] = useState({ tag: '', text: '', urgent: false, targetType: 'ALL', targetValue: '' });
 
   const [liveMins, setLiveMins] = useState(new Date().getHours() * 60 + new Date().getMinutes());
+
+  // --- TODO STATE ---
+  const [todos, setTodos] = useState<any[]>([]);
+  const [isTodoOpen, setIsTodoOpen] = useState(false);
+  const [newTodoTask, setNewTodoTask] = useState('');
   
   useEffect(() => {
     const timer = setInterval(() => {
@@ -106,7 +110,6 @@ export default function Daily() {
         const todayData = timeRes.data.find((d: any) => d.day === currentDay);
         
         if (todayData && todayData.classes) {
-          // Loads using the standard getTodayKey()
           const storageKey = getTodayKey();
           const savedState = JSON.parse(localStorage.getItem(storageKey) || '{}');
 
@@ -125,12 +128,15 @@ export default function Daily() {
         if (err.response?.status === 404) setNeedsSync(true);
       }
 
-      const [commsRes, bunkRes] = await Promise.all([
+      // Fetch Comms, Bunk Data, and Todos in parallel!
+      const [commsRes, bunkRes, todoRes] = await Promise.all([
         axios.get(`${API_HOST}/daily/comms?token=${token}`),
-        axios.get(`${API_HOST}/daily/bunk?token=${token}`)
+        axios.get(`${API_HOST}/daily/bunk?token=${token}`),
+        axios.get(`${API_HOST}/daily/todo?token=${token}`).catch(() => ({ data: [] }))
       ]);
       setCommsRadar(commsRes.data);
       setBunkMeter(bunkRes.data);
+      setTodos(todoRes.data);
 
       if (userHostel !== 'Day Scholar' && userHostel !== 'Unassigned') {
         try {
@@ -159,6 +165,40 @@ export default function Daily() {
     if (token) fetchDailyData();
   }, [token]);
 
+  // ==========================================
+  // TODO LIST FUNCTIONS
+  // ==========================================
+  const handleAddTodo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTodoTask.trim()) return;
+    try {
+      const res = await axios.post(`${API_HOST}/daily/todo?token=${token}`, { task: newTodoTask });
+      setTodos(prev => [...prev, res.data]);
+      setNewTodoTask('');
+    } catch (error) { console.error("Failed to add task", error); }
+  };
+
+  const handleToggleTodo = async (todo: any) => {
+    // Optimistic UI Update for instant feedback
+    setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, is_completed: !t.is_completed } : t));
+    try {
+      await axios.put(`${API_HOST}/daily/todo/${todo.id}?token=${token}`, { is_completed: !todo.is_completed });
+    } catch (error) {
+      // Revert if API fails
+      setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, is_completed: todo.is_completed } : t));
+    }
+  };
+
+  const handleDeleteTodo = async (id: number) => {
+    setTodos(prev => prev.filter(t => t.id !== id));
+    try {
+      await axios.delete(`${API_HOST}/daily/todo/${id}?token=${token}`);
+    } catch (error) { console.error("Failed to delete task", error); }
+  };
+
+  // ==========================================
+  // EXISTING HUB FUNCTIONS
+  // ==========================================
   const handleSyncUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (isGuest) return alert("Only verified users can upload timetables.");
     const file = event.target.files?.[0];
@@ -172,8 +212,7 @@ export default function Daily() {
       await axios.post(`${API_HOST}/daily/timetable/sync?token=${token}`, formData);
       fetchDailyData();
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || "AI Sync failed. Please make sure you uploaded a clear PNG of the timetable.";
-      alert(errorMessage);
+      alert(error.response?.data?.detail || "AI Sync failed. Please make sure you uploaded a clear PNG of the timetable.");
     } finally {
       setIsSyncing(false);
       if (syncInputRef.current) syncInputRef.current.value = '';
@@ -209,7 +248,6 @@ export default function Daily() {
   const handleMarkAttendance = async (classId: number, subjectName: string, status: 'attended' | 'bunked' | 'cancelled' | null) => {
     setTodayClasses(classes => classes.map(c => c.id === classId ? { ...c, attendance: status } : c));
     
-    // Saves using the standard getTodayKey()
     const storageKey = getTodayKey();
     const savedState = JSON.parse(localStorage.getItem(storageKey) || '{}');
     if (status === null) delete savedState[subjectName];
@@ -630,14 +668,88 @@ export default function Daily() {
         {renderComms()}
       </main>
 
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => setShowArchives(true)}
-        className="tour-acad-vault fixed bottom-24 right-4 z-40 bg-blue-600 text-white p-4 rounded-2xl shadow-[0_10px_25px_rgba(37,99,235,0.4)] border-2 border-blue-400 flex items-center justify-center gap-2 group"
-      >
-        <FolderOpen size={28} strokeWidth={2.5} />
-      </motion.button>
+      {/* ========================================== */}
+      {/* FLOATING ACTION BUTTONS (FABs) */}
+      {/* ========================================== */}
+      <div className="fixed bottom-24 right-4 z-40 flex flex-col gap-4 items-end pointer-events-none">
+        
+        {/* DAILY OPS (TODO) PANEL */}
+        <AnimatePresence>
+          {isTodoOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.9 }}
+              className="w-[calc(100vw-2rem)] sm:w-80 bg-slate-900 border-4 border-slate-800 rounded-2xl shadow-[8px_8px_0px_#000] p-4 flex flex-col pointer-events-auto origin-bottom-right"
+            >
+              <div className="flex justify-between items-center mb-4 border-b-2 border-slate-800 pb-2">
+                <h3 className="text-xl font-black text-lime-400 uppercase tracking-widest flex items-center gap-2">
+                  <CheckSquare size={20} /> Daily Ops
+                </h3>
+                <button onClick={() => setIsTodoOpen(false)} className="text-slate-500 hover:text-red-400 transition-colors"><X size={20} /></button>
+              </div>
+
+              <div className="flex-1 max-h-[40vh] overflow-y-auto hide-scrollbar space-y-2 mb-4">
+                {todos.length === 0 ? (
+                  <p className="text-center text-sm font-bold text-slate-500 py-4">No pending ops. You're clear.</p>
+                ) : (
+                  todos.map(todo => (
+                    <div key={todo.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border-2 transition-all ${todo.is_completed ? 'bg-slate-900/50 border-slate-800 opacity-60' : 'bg-slate-800 border-slate-700'}`}>
+                      <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                        <button onClick={() => handleToggleTodo(todo)} className={`shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${todo.is_completed ? 'bg-lime-400 border-lime-500 text-slate-900' : 'bg-slate-900 border-slate-500 text-transparent'}`}>
+                          <CheckCircle2 size={16} strokeWidth={3} className={todo.is_completed ? 'opacity-100' : 'opacity-0'} />
+                        </button>
+                        <span className={`text-sm font-bold truncate ${todo.is_completed ? 'line-through text-slate-500' : 'text-slate-200'}`}>{todo.task}</span>
+                      </div>
+                      <button onClick={() => handleDeleteTodo(todo.id)} className="shrink-0 text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16} /></button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form onSubmit={handleAddTodo} className="flex gap-2 shrink-0">
+                <input 
+                  type="text" 
+                  value={newTodoTask}
+                  onChange={e => setNewTodoTask(e.target.value)}
+                  placeholder="New objective..." 
+                  className="flex-1 bg-slate-950 border-2 border-slate-700 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-lime-400 transition-colors"
+                />
+                <button type="submit" disabled={!newTodoTask.trim()} className="bg-lime-400 text-slate-900 border-2 border-slate-900 rounded-xl px-4 font-black shadow-[4px_4px_0px_#000] hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000] active:scale-95 active:shadow-[2px_2px_0px_#000] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-[4px_4px_0px_#000]">
+                  <Plus size={20} />
+                </button>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* TODO LIST BUTTON */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setIsTodoOpen(!isTodoOpen)}
+          className="pointer-events-auto bg-lime-400 text-slate-900 p-4 rounded-2xl shadow-[4px_4px_0px_#000] border-2 border-slate-900 flex items-center justify-center gap-2 group relative"
+        >
+          <CheckSquare size={28} strokeWidth={2.5} />
+          {/* Notification Badge for Carry Forward Tasks */}
+          {todos.filter(t => !t.is_completed).length > 0 && !isTodoOpen && (
+            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-black w-6 h-6 flex items-center justify-center rounded-full border-2 border-slate-900">
+              {todos.filter(t => !t.is_completed).length}
+            </span>
+          )}
+        </motion.button>
+
+        {/* ACAD VAULT BUTTON */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setShowArchives(true)}
+          className="tour-acad-vault pointer-events-auto bg-blue-600 text-white p-4 rounded-2xl shadow-[4px_4px_0px_#000] border-2 border-slate-900 flex items-center justify-center gap-2 group"
+        >
+          <FolderOpen size={28} strokeWidth={2.5} />
+        </motion.button>
+
+      </div>
 
       {/* ========================================== */}
       {/* MODALS */}

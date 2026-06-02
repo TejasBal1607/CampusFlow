@@ -213,3 +213,11 @@ class Event(Base):
     status = Column(String, default="pending") # 'pending', 'approved'
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class TODO(Base):
+    __tablename__ = "todos"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    task = Column(String, nullable=False)
+    is_completed = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

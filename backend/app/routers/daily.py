@@ -64,6 +64,21 @@ class BunkManualUpdate(BaseModel):
     attended: int
     bunked: int
 
+class TODOCreate(BaseModel):
+    task: str
+
+class TODOUpdate(BaseModel):
+    is_completed: bool
+
+class TODOOut(BaseModel):
+    id: int
+    user_id: int
+    task: str
+    is_completed: bool
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
 # ==========================================
 # TIMETABLE SYNC ROUTES
 # ==========================================
@@ -365,3 +380,54 @@ def report_mess_menu(menu_id: int, db: Session = Depends(get_db), current_user: 
         
     db.commit()
     return {"message": f"Menu flagged successfully. Current strikes: {menu.report_count}/3"}
+
+@router.get("/todo", response_model=List[TODOOut])
+def get_todos(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    todos = db.query(models.TODO).filter(
+        models.TODO.user_id == current_user.id
+    ).filter(
+        or_(models.TODO.created_at >= today_start,
+            models.TODO.is_completed == False)
+    ).order_by(models.TODO.created_at.asc()).all()
+    return todos
+
+@router.post("/todo", response_model=TODOOut)
+def create_todo(payload: TODOCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    new_todo = models.TODO(user_id=current_user.id, 
+                            task=payload.task,
+                            is_completed=False)
+    db.add(new_todo)
+    db.commit()
+    db.refresh(new_todo)
+    return new_todo
+
+@router.put("/todo/{todo_id}", response_model=TODOOut)
+def update_todo(todo_id: int, payload: TODOUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    todo = db.query(models.TODO).filter(
+        models.TODO.id == todo_id, 
+        models.TODO.user_id == current_user.id
+    ).first()
+
+    if not todo:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    
+    todo.is_completed = payload.is_completed
+    db.commit()
+    db.refresh(todo)
+    return todo
+
+@router.delete("/todo/{todo_id}")
+def delete_todo(todo_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    todo = db.query(models.TODO).filter(
+        models.TODO.id == todo_id, 
+        models.TODO.user_id == current_user.id
+    ).first()
+
+    if not todo:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    
+    db.delete(todo)
+    db.commit()
+    return {"status": "Task deleted"}
+

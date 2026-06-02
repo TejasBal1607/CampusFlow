@@ -9,6 +9,8 @@ node_modules/
 dist/
 build/
 assets/
+.claude/
+.cursor/
 
 # OS Files
 .DS_Store
