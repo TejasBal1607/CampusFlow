@@ -72,26 +72,63 @@ const SectionHeader = ({ title, color }: { title: string, color: string }) => (
   </div>
 );
 
-// UPGRADED: Now handles dynamic tab switching on Next AND Previous
-const createStep = (selector: string, title: string, description: string, side: string = "top", tabTarget: string | null = null): any => ({
-  element: selector,
-  popover: { title, description, side, align: 'center' },
-  onHighlightStarted: () => {
-    // 1. Fire the custom event to switch tabs BEFORE highlighting
-    if (tabTarget) {
-      window.dispatchEvent(new CustomEvent('tour-tab-switch', { detail: tabTarget }));
-    }
-    // 2. Wait a split second for React to render the new tab, then scroll
-    setTimeout(() => {
-      const el = document.querySelector(selector);
-      if (el) el.scrollIntoView({ behavior: 'instant', block: 'center' });
-    }, 100);
-  }
-});
+// ==========================================
+// STATE-DRIVEN TOUR ENGINE
+// ==========================================
+const TOUR_STEPS = [
+  { popover: { title: 'Welcome to CampusFLOW', description: 'Your campus OS is ready. Let us take a quick tour of your new grid.', align: 'center' }, state: { tab: 'home' } },
+  { element: '.tour-home-widgets', popover: { title: 'At a Glance', description: 'Your quick overview. See your immediate balances and recent grid activity right here.', side: 'bottom', align: 'center' }, state: { tab: 'home' } },
+  { element: '.tour-settings', popover: { title: 'Your Identity', description: 'Click the gear to update your batch, hostel, stream, and more.', side: 'left', align: 'center' }, state: { tab: 'home' } },
+  
+  { element: '.tour-vault-nav', popover: { title: 'The Vault', description: 'Your financial ledger.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-budget', popover: { title: 'Set Monthly Budget', description: 'You can easily start by clicking the Edit icon to set your monthly budget.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-exp', popover: { title: 'Expenses', description: 'Track what you have spent this month.', side: 'bottom', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-net', popover: { title: 'Net Cash In', description: 'Your total budget and incomes combined.', side: 'bottom', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-sav', popover: { title: 'Savings', description: 'Money locked away in your Vault Cache.', side: 'bottom', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-avail', popover: { title: 'Available Cash', description: 'What you can safely spend right now.', side: 'bottom', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-ledger', popover: { title: 'Debt Ledger', description: 'Keep track of who owes you, and who you owe. No more lost money!.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-avg', popover: { title: 'The Averages', description: 'We calculate your ideal burn rate and also show your current and needed burn rate according to your spendings.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-alloc', popover: { title: 'Resource Allocation', description: 'A visual breakdown of where your money is actually going.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-vault-export', popover: { title: 'Export Data', description: 'Generate a clean PDF report of your entire month\'s activity.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'overview', vaultModal: 'none' } },
+
+  { element: '.tour-vault-log', popover: { title: 'Logs', description: 'Lets dive deeper and see the logs. For example in this expense tab where you can view, create, edit and delete your expenses', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'expenses', vaultModal: 'none' } },
+  { element: '.tour-vault-add', popover: { title: 'Add Expense', description: 'Click the + button to log a new expense.', side: 'left', align: 'center' }, state: { tab: 'vault', vaultView: 'expenses', vaultModal: 'none' } },
+  { element: '.tour-vault-modal', popover: { title: 'Expense Editor', description: 'Fill in the details manually, or use our smart tools.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'expenses', vaultModal: 'expense' } },
+  { element: '.tour-vault-ocr', popover: { title: 'AI Receipt Scanner', description: 'Click the Camera icon to scan a upi payment screenshot. Our AI instantly extracts the required data which you can edit before saving.', side: 'bottom', align: 'center' }, state: { tab: 'vault', vaultView: 'expenses', vaultModal: 'expense' } },
+  { element: '.tour-vault-split', popover: { title: 'Split Bills', description: 'Ate with friends? Click Split, search their name or number, and we will automatically add it to your mutual Debt Ledgers.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'expenses', vaultModal: 'expense' } },
+  { element: '.tour-vault-repeat', popover: { title: 'Recurring Subscriptions', description: 'Click Monthly for Spotify, Netflix, or Gym fees, and we will log it automatically every month.', side: 'top', align: 'center' }, state: { tab: 'vault', vaultView: 'expenses', vaultModal: 'expense' } },
+
+  { element: '.tour-daily-nav', popover: { title: 'The Daily Hub', description: 'Everything you need for academic or hostel life today.', side: 'top', align: 'center' }, state: { tab: 'daily', vaultView: 'overview', vaultModal: 'none' } },
+  { element: '.tour-class-tracker', popover: { title: 'Live Class Tracker', description: 'Watch the minutes tick down for your active class, and mark attendance instantly.', side: 'bottom', align: 'center' }, state: { tab: 'daily' } },
+  { element: '.tour-weekly-tt', popover: { title: 'Weekly Timetable', description: 'Click the Date to view your full weekly schedule. You can be the hero and upload the timetable if it is missing!', side: 'bottom', align: 'center' }, state: { tab: 'daily' } },
+  { element: '.tour-mess-menu', popover: { title: 'Mess Menu', description: 'Today\'s menu for your hostel. If it is empty, snap a picture to upload it for everyone.', side: 'bottom', align: 'center' }, state: { tab: 'daily' } },
+  { element: '.tour-bunk-meter', popover: { title: 'The Bunk Meter', description: 'Track your subjects. We calculate exactly how many classes you need to hit 75%, or how many you can safely bunk.', side: 'top', align: 'center' }, state: { tab: 'daily' } },
+  { element: '.tour-comms', popover: { title: 'Comms Radar', description: 'Targeted broadcasts. You will only see alerts meant for your specific batch, stream, or hostel.', side: 'top', align: 'center' }, state: { tab: 'daily' } },
+  { element: '.tour-acad-vault', popover: { title: 'Acad Vault', description: 'Access PYQs, notes, and study material organised neatly into various folders.', side: 'left', align: 'center' }, state: { tab: 'daily' } },
+  
+  // ✨ NEW DAILY OPS STEP
+  { element: '.tour-daily-todo', popover: { title: 'Daily Ops', description: 'Your personal mission control. Add tasks here. If you do not check them off, it automatically carries them forward to tomorrow.', side: 'left', align: 'center' }, state: { tab: 'daily' } },
+
+  { element: '.tour-bazaar-nav', popover: { title: 'The Bazaar', description: 'Your campus marketplace and event hub.', side: 'top', align: 'center' }, state: { tab: 'bazaar', bazaarTab: 'market' } },
+  
+  // ✨ UPDATED BAZAAR STEPS
+  { element: '.tour-bazaar-market', popover: { title: 'Marketplace', description: 'Buy and sell gear safely with campus peers. Use the search bar or filters to find what you need, and connect instantly via WhatsApp.', side: 'bottom', align: 'center' }, state: { tab: 'bazaar', bazaarTab: 'market' } },
+  
+  { element: '.tour-bazaar-events', popover: { title: 'Campus Events', description: 'Switch to this tab for a full-screen, Insta-style feed of upcoming events. Like, get info, and register for fests and hackathons directly.', side: 'bottom', align: 'center' }, state: { tab: 'bazaar', bazaarTab: 'events' } },
+  
+  // 1. Point at the button first
+  { element: '.tour-bazaar-map', popover: { title: 'Navigator Access', description: 'Click this lime green pin whenever you need to find your way around campus.', side: 'left', align: 'center' }, state: { tab: 'bazaar', bazaarTab: 'market' } },
+  
+  // 2. Physically open the map (Notice there is no 'element', so the popover centers perfectly over the map!)
+  { popover: { title: 'Thapar Navigator', description: 'A custom, high-res GPS map of the campus. Search for any building or hostel, and use the running stickman fallback if your GPS drops.', align: 'center' }, state: { tab: 'navigator' } },
+  
+
+  { popover: { title: '', description: `<div style="display: flex; flex-direction: column; align-items: center; text-align: center; margin-top: 10px;"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 12px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><p style="color: #ef4444; font-weight: 900; font-size: 1.2rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-family: ui-sans-serif, system-ui;">Report and Ban Policy Active</p><p style="color: #94a3b8; font-size: 1rem; font-family: ui-sans-serif, system-ui; line-height: 1.5; font-weight: bold;">CampusFLOW relies on crowdsourcing. Uploading fake menus or inappropriate resources will result in an immediate ban.<br/><br/>Play nice, and enjoy the grid!</p></div>`, align: 'center' }, state: { tab: 'home' } }
+
+];
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  // FIX 1: New loading state for the full-screen spinner
   const [isProfileLoading, setIsProfileLoading] = useState(true); 
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string>('Loading...'); 
@@ -119,9 +156,11 @@ export default function App() {
   const needsSetup = !isAdmin && (!userDetails.phone || !userDetails.rollNumber || !userDetails.batch || !userDetails.stream || !userDetails.hostel);
 
   const startTour = () => {
+    // 1. Setup Initial State
     setActiveTab('home'); 
     window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'overview' }));
     window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'none' }));
+    window.dispatchEvent(new CustomEvent('tour-bazaar-tab', { detail: 'market' }));
 
     setTimeout(() => {
       const driverObj = driver({
@@ -129,90 +168,58 @@ export default function App() {
         animate: true,
         allowClose: false,
         popoverClass: 'driverjs-theme',
-        onNextClick: (element, step) => {
-          const title = step.popover?.title;
-
-          if (title === 'Your Identity') {
-            setActiveTab('vault');
-            window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'overview' }));
-            setTimeout(() => driverObj.moveNext(), 600);
-          } else if (title === 'Export Data') {
-            window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'expenses' }));
-            setTimeout(() => driverObj.moveNext(), 600);
-          } else if (title === 'Add Expense') {
-            window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'expense' }));
-            setTimeout(() => driverObj.moveNext(), 600);
-          } else if (title === 'Recurring Subscriptions') {
-            window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'none' }));
-            window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'overview' }));
-            setActiveTab('daily');
-            setTimeout(() => driverObj.moveNext(), 600);
-          } else if (title === 'Acad Vault') {
-            setActiveTab('bazaar');
-            setTimeout(() => driverObj.moveNext(), 600);
-          } else if (title === 'Coming Soon') {
-            setActiveTab('home');
-            setTimeout(() => driverObj.moveNext(), 600);
-          } else {
-            driverObj.moveNext();
-          }
-        },
-        steps: [
-          { popover: { title: 'Welcome to CampusFLOW', description: 'Your campus OS is ready. Let us take a quick tour of your new grid.', align: 'center' } },
-          createStep('.tour-home-widgets', 'At a Glance', 'Your quick overview. See your immediate balances and recent grid activity right here.', 'bottom'),
-          createStep('.tour-settings', 'Your Identity', 'Click the gear to update your batch, hostel, stream, and more.', 'left'),
+        
+        // ✨ THE MAGIC: State-Driven "Next" Engine
+        onNextClick: () => {
+          const currentIndex = driverObj.getActiveIndex();
+          const nextIndex = currentIndex !== undefined ? currentIndex + 1 : 1;
           
-          createStep('.tour-vault-nav', 'The Vault', 'Your financial ledger.', 'top', 'vault'),
-          createStep('.tour-vault-budget', 'Set Monthly Budget', 'You can easily start by clicking the Edit icon to set your monthly budget.', 'top', 'vault'),
-          createStep('.tour-vault-exp', 'Expenses', 'Track what you have spent this month.', 'bottom', 'vault'),
-          createStep('.tour-vault-net', 'Net Cash In', 'Your total budget and incomes combined.', 'bottom', 'vault'),
-          createStep('.tour-vault-sav', 'Savings', 'Money locked away in your Vault Cache.', 'bottom', 'vault'),
-          createStep('.tour-vault-avail', 'Available Cash', 'What you can safely spend right now.', 'bottom', 'vault'),
-          createStep('.tour-vault-ledger', 'Debt Ledger', 'Keep track of who owes you, and who you owe. No more lost money!.', 'top', 'vault'),
-          createStep('.tour-vault-avg', 'The Averages', 'We calculate your ideal burn rate and also show your current and needed burn rate according to your spendings.', 'top', 'vault'),
-          createStep('.tour-vault-alloc', 'Resource Allocation', 'A visual breakdown of where your money is actually going.', 'top', 'vault'),
-          createStep('.tour-vault-export', 'Export Data', 'Generate a clean PDF report of your entire month\'s activity.', 'top', 'vault'),
-
-          createStep('.tour-vault-log', 'Logs', 'Lets dive deeper and see the logs. For example in this expense tab where you can view, create, edit and delete your expenses', 'top', 'vault'),
-          createStep('.tour-vault-add', 'Add Expense', 'Click the + button to log a new expense.', 'left', 'vault'),
-          createStep('.tour-vault-modal', 'Expense Editor', 'Fill in the details manually, or use our smart tools.', 'top', 'vault'),
-          createStep('.tour-vault-ocr', 'AI Receipt Scanner', 'Click the Camera icon to scan a upi payment screenshot. Our AI instantly extracts the required data which you can edit before saving.', 'bottom', 'vault'),
-          createStep('.tour-vault-split', 'Split Bills', 'Ate with friends? Click Split, search their name or number, and we will automatically add it to your mutual Debt Ledgers.', 'top', 'vault'),
-          createStep('.tour-vault-repeat', 'Recurring Subscriptions', 'Click Monthly for Spotify, Netflix, or Gym fees, and we will log it automatically every month.', 'top', 'vault'),
-
-          createStep('.tour-daily-nav', 'The Daily Hub', 'Everything you need for academic or hostel life today.', 'top', 'daily'),
-          createStep('.tour-class-tracker', 'Live Class Tracker', 'Watch the minutes tick down for your active class, and mark attendance instantly.', 'bottom', 'daily'),
-          createStep('.tour-weekly-tt', 'Weekly Timetable', 'Click the Date to view your full weekly schedule. You can be the hero and upload the timetable if it is missing!', 'bottom', 'daily'),
-          createStep('.tour-mess-menu', 'Mess Menu', 'Today\'s menu for your hostel. If it is empty, snap a picture to upload it for everyone.', 'bottom', 'daily'),
-          createStep('.tour-bunk-meter', 'The Bunk Meter', 'Track your subjects. We calculate exactly how many classes you need to hit 75%, or how many you can safely bunk.', 'top', 'daily'),
-          createStep('.tour-comms', 'Comms Radar', 'Targeted broadcasts. You will only see alerts meant for your specific batch, stream, or hostel.', 'top', 'daily'),
-          createStep('.tour-acad-vault', 'Acad Vault', 'Access PYQs, notes, and study material organised neatly into various folders.', 'left', 'daily'),
-
-          createStep('.tour-bazaar-nav', 'The Bazaar', 'Your campus marketplace and event hub.', 'top', 'bazaar'),
-          createStep('.tour-bazaar-content', 'Coming Soon', 'Buy/Sell 2nd hand items safely, use the Thapar Navigator, and discover campus events here soon!', 'top', 'bazaar'),
-
-          // FIX 3: HTML INJECTION FOR WARNING SHIELD
-          { 
-            popover: { 
-              title: '', 
-              description: `
-                <div style="display: flex; flex-direction: column; align-items: center; text-align: center; margin-top: 10px;">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 12px;">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                    <line x1="12" y1="8" x2="12" y2="12"></line>
-                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                  </svg>
-                  <p style="color: #ef4444; font-weight: 900; font-size: 1.2rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-family: ui-sans-serif, system-ui;">Report and Ban Policy Active</p>
-                  <p style="color: #94a3b8; font-size: 1rem; font-family: ui-sans-serif, system-ui; line-height: 1.5; font-weight: bold;">CampusFLOW relies on crowdsourcing. Uploading fake menus or inappropriate resources will result in an immediate ban.<br/><br/>Play nice, and enjoy the grid!</p>
-                </div>
-              `, 
-              align: 'center' 
-            } 
-          },
-        ],
+          if (nextIndex >= TOUR_STEPS.length) { 
+            driverObj.moveNext(); 
+            return; 
+          }
+          
+          const state = TOUR_STEPS[nextIndex].state;
+          if (state) {
+            if (state.tab) setActiveTab(state.tab);
+            if (state.vaultView) window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: state.vaultView }));
+            if (state.vaultModal) window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: state.vaultModal }));
+            if (state.bazaarTab) window.dispatchEvent(new CustomEvent('tour-bazaar-tab', { detail: state.bazaarTab }));
+          }
+          
+          // Wait exactly 400ms for React and Framer Motion to render the new tab, THEN move
+          setTimeout(() => driverObj.moveNext(), 400);
+        },
+        
+        // ✨ THE MAGIC: State-Driven "Previous" Engine
+        onPrevClick: () => {
+          const currentIndex = driverObj.getActiveIndex();
+          const prevIndex = currentIndex !== undefined ? currentIndex - 1 : -1;
+          
+          if (prevIndex < 0) { 
+            driverObj.movePrevious(); 
+            return; 
+          }
+          
+          const state = TOUR_STEPS[prevIndex].state;
+          if (state) {
+            if (state.tab) setActiveTab(state.tab);
+            if (state.vaultView) window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: state.vaultView }));
+            if (state.vaultModal) window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: state.vaultModal }));
+            if (state.bazaarTab) window.dispatchEvent(new CustomEvent('tour-bazaar-tab', { detail: state.bazaarTab }));
+          }
+          
+          // Prepare DOM in reverse, THEN highlight!
+          setTimeout(() => driverObj.movePrevious(), 400);
+        },
+        
+        // Strip out the custom 'state' object so Driver.js only sees element/popover
+        steps: TOUR_STEPS.map(s => ({ element: s.element, popover: s.popover })) as any,
+        
         onDestroyed: () => {
           window.dispatchEvent(new CustomEvent('tour-vault-modal', { detail: 'none' }));
           window.dispatchEvent(new CustomEvent('tour-vault-view', { detail: 'overview' }));
+          window.dispatchEvent(new CustomEvent('tour-bazaar-tab', { detail: 'market' }));
         }
       });
       driverObj.drive();
@@ -262,12 +269,6 @@ export default function App() {
     } else {
       setIsProfileLoading(false); // Stop loading if no token is found
     }
-  }, []);
-
-  useEffect(() => {
-    const handleTourTabSwitch = (e: any) => setActiveTab(e.detail);
-    window.addEventListener('tour-tab-switch', handleTourTabSwitch);
-    return () => window.removeEventListener('tour-tab-switch', handleTourTabSwitch);
   }, []);
 
   const fetchProfile = async (token: string) => {
@@ -467,7 +468,7 @@ export default function App() {
   return (
     <div className="bg-slate-950 min-h-[100dvh] text-slate-100 font-caveat flex flex-col relative">       
       
-      {/* FIX 2 & 3: UPGRADED DRIVER.JS CSS */}
+      {/* DRIVER.JS CSS */}
       <style dangerouslySetInnerHTML={{__html: `
         .driverjs-theme {
           background-color: #0f172a !important;

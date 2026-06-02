@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ShoppingBag, Ticket, MessageCircle, MapPin, Heart, Info, Search, Plus } from 'lucide-react';
 
@@ -23,8 +23,14 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Track liked reels
   const [likedEvents, setLikedEvents] = useState<Set<number>>(new Set());
+
+  // ✨ TOUR EVENT LISTENER
+  useEffect(() => {
+    const handleBazaarTab = (e: any) => setActiveTab(e.detail);
+    window.addEventListener('tour-bazaar-tab', handleBazaarTab);
+    return () => window.removeEventListener('tour-bazaar-tab', handleBazaarTab);
+  }, []);
 
   // Search & Filter combined logic
   const filteredItems = MOCK_ITEMS.filter(item => 
@@ -46,6 +52,8 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
     });
   };
 
+  // Leave your existing return statement exactly as it is below this line!
+
   return (
     <div className="w-full flex flex-col font-sans relative">
       
@@ -65,7 +73,7 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`relative flex items-center justify-center rounded-full font-bold tracking-wide transition-all duration-300 ${
+              className={`tour-bazaar-events relative flex items-center justify-center rounded-full font-bold tracking-wide transition-all duration-300 ${
                 activeTab === 'events' ? 'p-3' : 'px-3 sm:px-5 py-2.5 text-xs sm:text-sm'
               } ${
                 activeTab === tab ? 'text-slate-900' : 'text-slate-400 hover:text-slate-200'
@@ -92,11 +100,11 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
           ))}
         </div>
 
-        {/* Map Button (No longer wrapped in a flex-1 spacer!) */}
+        {/* Map (No longer wrapped in a flex-1 spacer!) */}
         {activeTab === 'market' && (
           <button 
             onClick={() => navigateTo('navigator')} 
-            className="shrink-0 bg-lime-400 rounded-full border-2 border-slate-900 flex items-center justify-center text-slate-950 hover:bg-lime-300 transition-all shadow-[4px_4px_0px_#000] w-12 h-12 hover:-translate-y-1"
+            className="tour-bazaar-map shrink-0 bg-lime-400 rounded-full border-2 border-slate-900 flex items-center justify-center text-slate-950 hover:bg-lime-300 transition-all shadow-[4px_4px_0px_#000] w-12 h-12 hover:-translate-y-1"
           >
             <MapPin size={24} strokeWidth={2.5} />
           </button>
@@ -122,7 +130,7 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
               />
               <Search className="absolute left-3.5 top-3.5 text-slate-500" size={20} />
             </div>
-            <button className="bg-lime-400 shrink-0 flex items-center justify-center text-slate-950 px-4 rounded-xl border-2 border-slate-900 shadow-[4px_4px_0px_#000] hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000] active:scale-95 transition-all font-black gap-2">
+            <button className="tour-bazaar-market bg-lime-400 shrink-0 flex items-center justify-center text-slate-950 px-4 rounded-xl border-2 border-slate-900 shadow-[4px_4px_0px_#000] hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000] active:scale-95 transition-all font-black gap-2">
               <Plus size={22} strokeWidth={3} />
               <span className="hidden sm:inline">Sell</span>
             </button>

@@ -728,7 +728,7 @@ export default function Daily() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={() => setIsTodoOpen(!isTodoOpen)}
-          className="pointer-events-auto bg-lime-400 text-slate-900 p-4 rounded-2xl shadow-[4px_4px_0px_#000] border-2 border-slate-900 flex items-center justify-center gap-2 group relative"
+          className="tour-daily-todo pointer-events-auto bg-lime-400 text-slate-900 p-4 rounded-2xl shadow-[4px_4px_0px_#000] border-2 border-slate-900 flex items-center justify-center gap-2 group relative"
         >
           <CheckSquare size={28} strokeWidth={2.5} />
           {/* Notification Badge for Carry Forward Tasks */}
