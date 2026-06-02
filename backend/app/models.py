@@ -84,8 +84,9 @@ class SavingsLock(Base):
 class CreditLedger(Base):
     __tablename__ = "credit_ledger"
     id = Column(Integer, primary_key=True, index=True)
-    lender_id = Column(Integer, ForeignKey("users.id"))  
-    borrower_id = Column(Integer, ForeignKey("users.id")) 
+    lender_id = Column(Integer, ForeignKey("users.id"), nullable=True)  
+    borrower_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    unregistered_name = Column(String, nullable=True) 
     amount = Column(Float, nullable=False)
     description = Column(String)
     date = Column(Date, default=get_today_ist())

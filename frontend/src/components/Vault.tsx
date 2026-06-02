@@ -207,8 +207,9 @@ export default function Vault() {
         await axios.post(`${API_HOST}/finance/budget`, payload);
       } 
       else if (modalType === 'ledger') {
-        if (!formData.otherUser && !selectedId) {
-          alert("Please search and select a friend to attach this ledger to.");
+        // ALLOW searchQuery to act as the unregistered user's name
+        if (!formData.otherUser && !selectedId && !searchQuery.trim()) {
+          alert("Please select a friend or type a name to attach this ledger to.");
           return;
         }
 
@@ -218,12 +219,12 @@ export default function Vault() {
           await axios.put(`${API_HOST}/ledger/${selectedId}`, { amount: amt, description: formData.title || 'Misc Debt', date: formData.date });
         } else {
           const payload = { 
-            lender_id: isBorrowing ? formData.otherUser!.id : currentUserId, 
-            borrower_id: isBorrowing ? currentUserId : formData.otherUser!.id, 
+            lender_id: isBorrowing ? (formData.otherUser?.id || null) : currentUserId, 
+            borrower_id: isBorrowing ? currentUserId : (formData.otherUser?.id || null), 
+            unregistered_name: !formData.otherUser ? searchQuery.trim() : null,
             amount: amt, 
             description: formData.title || 'Misc Debt', 
-            date: formData.date || getTodayString(),
-            creator_id: currentUserId
+            date: formData.date || getTodayString()
           };
           await axios.post(`${API_HOST}/ledger/`, payload);
         }
@@ -686,10 +687,10 @@ export default function Vault() {
       <AnimatePresence>
         {activeModal !== 'none' && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeModal} className="fixed inset-0 bg-black/70 z-[60] backdrop-blur-sm max-w-md mx-auto" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeModal} className="fixed inset-0 bg-black/70 z-[110] backdrop-blur-sm max-w-md mx-auto" />
             
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} 
-              className="tour-vault-modal fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#fdfbf7] text-slate-900 z-[70] pt-12 pb-10 px-6 drop-shadow-[0_-10px_10px_rgba(0,0,0,0.3)] overflow-y-auto max-h-[85vh] hide-scrollbar"
+              className="tour-vault-modal fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#fdfbf7] text-slate-900 z-[120] pt-12 pb-16 px-6 drop-shadow-[0_-10px_10px_rgba(0,0,0,0.3)] overflow-y-auto max-h-[85vh] hide-scrollbar"
               style={{ clipPath: 'polygon(0 15px, 5% 0, 10% 15px, 15% 0, 20% 15px, 25% 0, 30% 15px, 35% 0, 40% 15px, 45% 0, 50% 15px, 55% 0, 60% 15px, 65% 0, 70% 15px, 75% 0, 80% 15px, 85% 0, 90% 15px, 95% 0, 100% 15px, 100% 100%, 0 100%)' }}
             >
               
@@ -884,16 +885,23 @@ export default function Vault() {
                       <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Select Person</label>
                       
                       {!formData.otherUser ? (
-                        <div className="relative">
-                          <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
-                          <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => handleSearch(e.target.value)}
-                            placeholder="Search by name/phone..."
-                            className="w-full bg-white border-2 border-slate-300 rounded-md py-2 pl-9 pr-3 text-slate-800 font-bold focus:outline-none focus:border-blue-500 font-sans"
-                          />
-                          {isSearching && <Loader2 className="absolute right-3 top-2.5 animate-spin text-slate-400" size={18} />}
+                        <div>
+                          <div className="relative">
+                            <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+                            <input
+                              type="text"
+                              value={searchQuery}
+                              onChange={(e) => handleSearch(e.target.value)}
+                              placeholder="Search by name/phone or type a guest name..."
+                              className="w-full bg-white border-2 border-slate-300 rounded-md py-2 pl-9 pr-3 text-slate-800 font-bold focus:outline-none focus:border-blue-500 font-sans"
+                            />
+                            {isSearching && <Loader2 className="absolute right-3 top-2.5 animate-spin text-slate-400" size={18} />}
+                          </div>
+                          {searchQuery.trim().length > 0 && searchResults.length === 0 && !isSearching && (
+                             <p className="text-[10px] text-slate-500 font-bold mt-1.5 ml-1 font-sans">
+                               No account found. Will save as guest: "{searchQuery.trim()}"
+                             </p>
+                          )}
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
