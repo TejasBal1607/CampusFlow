@@ -1,8 +1,9 @@
 from sqlalchemy import extract, func, or_, and_
-from datetime import date as dt_date # Crucial fix to prevent namespace collision
+from datetime import date as dt_date 
 from typing import List, Optional
 import json
 import os
+from calendar import monthrange # 🚀 NEW: Helps us handle month lengths dynamically!
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -35,8 +36,9 @@ class ExpenseCreate(BaseModel):
     description: Optional[str] = None
     user_id: int
     split_with: list[int] | None = None
-    date: Optional[dt_date] = None # Fixed Schema
+    date: Optional[dt_date] = None 
     is_recurring: bool = False
+    end_date: Optional[dt_date] = None # 🚀 NEW: For cancellations
 
 class ExpenseOut(BaseModel):
     id: int
@@ -47,6 +49,7 @@ class ExpenseOut(BaseModel):
     description: Optional[str] = None
     date: dt_date 
     is_recurring: bool = False
+    end_date: Optional[dt_date] = None # 🚀 NEW
     class Config:
         from_attributes = True
 
@@ -55,6 +58,7 @@ class OcrExpenseResult(BaseModel):
     vendor: str
     category: ExpenseCategory
     description: str
+
 
 @router.post("/", response_model=ExpenseOut)
 def create_expense(payload: ExpenseCreate, db: Session = Depends(get_db)):
@@ -70,10 +74,26 @@ def create_expense(payload: ExpenseCreate, db: Session = Depends(get_db)):
         models.Income.user_id == payload.user_id, extract("month", models.Income.created_at) == ex_month, extract("year", models.Income.created_at) == ex_year
     ).scalar()
 
-    total_expenses = db.query(func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
-        models.Expense.user_id == payload.user_id, extract("month", models.Expense.date) == ex_month, extract("year", models.Expense.date) == ex_year
+    # 🚀 FIX: Budget now calculates normal expenses AND projected recurring expenses!
+    _, last_day = monthrange(ex_year, ex_month)
+    target_month_start = dt_date(ex_year, ex_month, 1)
+    target_month_end = dt_date(ex_year, ex_month, last_day)
+
+    normal_expenses = db.query(func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
+        models.Expense.user_id == payload.user_id, 
+        extract("month", models.Expense.date) == ex_month, 
+        extract("year", models.Expense.date) == ex_year,
+        models.Expense.is_recurring == False
     ).scalar()
 
+    recurring_expenses = db.query(func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
+        models.Expense.user_id == payload.user_id,
+        models.Expense.is_recurring == True,
+        models.Expense.date <= target_month_end,
+        or_(models.Expense.end_date == None, models.Expense.end_date >= target_month_start)
+    ).scalar()
+
+    total_expenses = normal_expenses + recurring_expenses
     total_savings_locked = db.query(func.coalesce(func.sum(models.SavingsLock.amount), 0.0)).filter(
         models.SavingsLock.user_id == payload.user_id, extract("month", models.SavingsLock.created_at) == ex_month, extract("year", models.SavingsLock.created_at) == ex_year
     ).scalar()
@@ -106,7 +126,8 @@ def create_expense(payload: ExpenseCreate, db: Session = Depends(get_db)):
         vendor=payload.vendor,
         description=payload.description,
         date=expense_date,
-        is_recurring=payload.is_recurring
+        is_recurring=payload.is_recurring,
+        end_date=payload.end_date
     )
     db.add(expense)
     db.commit()
@@ -137,6 +158,7 @@ def update_expense(expense_id: int, payload: ExpenseCreate, db: Session = Depend
     expense.vendor = payload.vendor
     expense.description = payload.description
     expense.is_recurring = payload.is_recurring
+    expense.end_date = payload.end_date
     
     if payload.date is not None:
         expense.date = payload.date 
@@ -144,6 +166,17 @@ def update_expense(expense_id: int, payload: ExpenseCreate, db: Session = Depend
     db.commit()
     db.refresh(expense)
     return expense
+
+# 🚀 NEW: Discontinue Subscription Endpoint
+@router.put("/{expense_id}/cancel")
+def cancel_recurring_expense(expense_id: int, db: Session = Depends(get_db)):
+    expense = db.query(models.Expense).filter(models.Expense.id == expense_id).first()
+    if not expense: raise HTTPException(status_code=404)
+    
+    # We set the end_date to today. It will no longer show up in future months!
+    expense.end_date = get_today_ist()
+    db.commit()
+    return {"detail": "Subscription cancelled successfully."}
 
 @router.delete("/{expense_id}")
 def delete_expense(expense_id: int, db: Session = Depends(get_db)):
@@ -153,17 +186,56 @@ def delete_expense(expense_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"detail": "Expense deleted", "expense_id": expense_id}
 
+
 @router.get("/user/{user_id}", response_model=List[ExpenseOut])
 def get_expenses_by_user(user_id: int, month: int, year: int, db: Session = Depends(get_db)):
-    target_date = dt_date(year, month, 1)
+    target_month_start = dt_date(year, month, 1)
+    _, last_day = monthrange(year, month)
+    target_month_end = dt_date(year, month, last_day)
     
-    return db.query(models.Expense).filter(
+    # 1. Fetch ONE-TIME expenses for the requested month
+    normal_expenses = db.query(models.Expense).filter(
         models.Expense.user_id == user_id,
-        or_(
-            and_(extract("month", models.Expense.date) == month, extract("year", models.Expense.date) == year),
-            and_(models.Expense.is_recurring == True, models.Expense.date <= target_date)
-        )
-    ).order_by(models.Expense.date.desc()).all()
+        extract("month", models.Expense.date) == month, 
+        extract("year", models.Expense.date) == year,
+        models.Expense.is_recurring == False
+    ).all()
+
+    # 2. Fetch RECURRING expenses that started on or before this month, and haven't been cancelled
+    recurring_expenses = db.query(models.Expense).filter(
+        models.Expense.user_id == user_id,
+        models.Expense.is_recurring == True,
+        models.Expense.date <= target_month_end,
+        or_(models.Expense.end_date == None, models.Expense.end_date >= target_month_start)
+    ).all()
+
+    results = []
+    
+    for ex in normal_expenses:
+        results.append(ex)
+
+    # 🚀 THE FIX: Project the recurring expenses into the queried month
+    for ex in recurring_expenses:
+        # e.g., if you bought Spotify on Jan 14, and query March, it becomes March 14
+        safe_day = min(ex.date.day, last_day) 
+        projected_date = dt_date(year, month, safe_day)
+        
+        ex_dict = {
+            "id": ex.id,
+            "user_id": ex.user_id,
+            "amount": ex.amount,
+            "category": ex.category,
+            "vendor": ex.vendor,
+            "description": ex.description,
+            "date": projected_date, # Overwrite with the proper month's date!
+            "is_recurring": True,
+            "end_date": ex.end_date
+        }
+        results.append(ex_dict)
+        
+    # Sort everything by date descending
+    results.sort(key=lambda x: getattr(x, "date", x.get("date") if isinstance(x, dict) else dt_date.min), reverse=True)
+    return results
 
 
 @router.post("/ocr", response_model=OcrExpenseResult)

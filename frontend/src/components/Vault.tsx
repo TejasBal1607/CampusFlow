@@ -56,9 +56,10 @@ export default function Vault() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   
+  // 🚀 UPGRADE: Added endDate to track cancellations!
   const [formData, setFormData] = useState({
     amount: '', title: '', category: 'Food', vendor: '', type: 'deposit', resolved: false, 
-    date: getTodayString(), isRecurring: false, splitWith: [] as {id: number, name: string}[],
+    date: getTodayString(), isRecurring: false, endDate: null as string | null, splitWith: [] as {id: number, name: string}[],
     otherUser: null as {id: number, name: string} | null
   });
 
@@ -84,7 +85,7 @@ export default function Vault() {
     setShowSettleAlert(false); 
     setSearchQuery('');
     setSearchResults([]);
-    setFormData({ amount: '', title: '', category: 'Food', vendor: '', type: 'deposit', resolved: false, date: getTodayString(), isRecurring: false, splitWith: [], otherUser: null });
+    setFormData({ amount: '', title: '', category: 'Food', vendor: '', type: 'deposit', resolved: false, date: getTodayString(), isRecurring: false, endDate: null, splitWith: [], otherUser: null });
   };
 
   const fetchAllData = async () => {
@@ -160,6 +161,25 @@ export default function Vault() {
     setSearchResults([]);
   };
 
+  // 🚀 UPGRADE: Handles hitting the backend cancellation routes!
+  const handleCancelSubscription = async (modalType: string) => {
+    if (!selectedId) return;
+    if (!confirm("Stop this recurring entry? It will no longer appear in future months.")) return;
+    
+    try {
+      if (modalType === 'expense') {
+        await axios.put(`${API_HOST}/expenses/${selectedId}/cancel`);
+      } else if (modalType === 'income') {
+        await axios.put(`${API_HOST}/finance/income/${selectedId}/cancel`);
+      }
+      closeModal();
+      await fetchAllData();
+    } catch (error: any) {
+      alert("Failed to cancel subscription.");
+      console.error(error);
+    }
+  };
+
   const handleSave = async (modalType: string) => {
     try {
       const amt = parseFloat(formData.amount) || 0;
@@ -207,7 +227,6 @@ export default function Vault() {
         await axios.post(`${API_HOST}/finance/budget`, payload);
       } 
       else if (modalType === 'ledger') {
-        // ALLOW searchQuery to act as the unregistered user's name
         if (!formData.otherUser && !selectedId && !searchQuery.trim()) {
           alert("Please select a friend or type a name to attach this ledger to.");
           return;
@@ -239,7 +258,7 @@ export default function Vault() {
       }
 
       closeModal();
-      await fetchAllData(); // FIX: Added await to ensure UI updates after backend finishes
+      await fetchAllData();
     } catch (error: any) {
       const errDetail = error.response?.data?.detail;
       const msg = typeof errDetail === 'string' ? errDetail : JSON.stringify(errDetail, null, 2);
@@ -299,7 +318,7 @@ export default function Vault() {
       }
       
       closeModal();
-      await fetchAllData(); // FIX: Added await
+      await fetchAllData(); 
     } catch (error) {
       console.error(`Failed to delete and sync:`, error);
     }
@@ -310,7 +329,7 @@ export default function Vault() {
     try {
       await axios.put(`${API_HOST}/ledger/settle/${selectedId}`);
       closeModal();
-      await fetchAllData(); // FIX: Added await
+      await fetchAllData(); 
     } catch (error) {
       console.error("Failed to settle debt", error);
     }
@@ -455,6 +474,7 @@ export default function Vault() {
             resolved: item.is_settled || item.resolved || false,
             date: itemDate ? itemDate.split('T')[0] : getTodayString(),
             isRecurring: item.is_recurring || false,
+            endDate: item.end_date || null, // 🚀 Load end_date to block toggle
             splitWith: [],
             otherUser: type === 'ledger' ? {
               id: item.lender_id === currentUserId ? item.borrower_id : item.lender_id,
@@ -547,14 +567,14 @@ export default function Vault() {
       <div className="flex w-full pb-2 border-b-2 border-slate-700 mb-4 text-slate-400 font-bold text-lg"><div className="w-[22%] text-center">Date</div><div className="flex-1 px-4">Entry Details</div><div className="w-[35%] text-right pr-2">Amt/Act</div></div>
       <div className="tour-vault-log space-y-4 relative z-10 overflow-y-auto max-h-[65vh] pb-24 pr-1 hide-scrollbar">
         {[...expensesList].sort(sortByDate).map((item, i) => (
-          <div key={item.id || i} className="flex items-center w-full py-2 group hover:bg-slate-800/30 rounded-md transition-colors">
+          <div key={item.id || i} className={`flex items-center w-full py-2 group hover:bg-slate-800/30 rounded-md transition-colors ${item.end_date ? 'opacity-50' : ''}`}>
             <div className="w-[22%] text-center text-lg font-bold text-slate-500 whitespace-nowrap">{formatDate(item.date || item.created_at)}</div>
             <div className="flex-1 px-4 flex flex-col justify-center overflow-hidden">
               <span className="text-xl font-bold flex items-center gap-2 truncate">
                 {item.title || item.description}
-                {item.is_recurring && <Repeat size={14} className="text-purple-400" />}
+                {item.is_recurring && <Repeat size={14} className={item.end_date ? 'text-slate-600' : 'text-purple-400'} />}
               </span>
-              <span className="text-sm font-sans text-slate-400 tracking-wide truncate">{item.vendor} • {item.category}</span>
+              <span className="text-sm font-sans text-slate-400 tracking-wide truncate">{item.vendor} • {item.category} {item.end_date && '(Cancelled)'}</span>
             </div>
             <div className="w-[35%] flex justify-end items-center pr-2 whitespace-nowrap flex-shrink-0">
               <span className="text-xl font-extrabold text-red-400">-₹{item.amount}</span>
@@ -573,14 +593,14 @@ export default function Vault() {
       <div className="flex w-full pb-2 border-b-2 border-slate-700 mb-4 text-slate-400 font-bold text-lg"><div className="w-[22%] text-center">Date</div><div className="flex-1 px-4">Source Details</div><div className="w-[32%] text-right pr-2">Amt/Act</div></div>
       <div className="space-y-4 relative z-10 overflow-y-auto max-h-[65vh] pb-24 pr-1 hide-scrollbar">
         {[...incomesList].sort(sortByDate).map((item, i) => (
-          <div key={item.id || i} className="flex items-center w-full py-2 group hover:bg-slate-800/30 rounded-md transition-colors">
+          <div key={item.id || i} className={`flex items-center w-full py-2 group hover:bg-slate-800/30 rounded-md transition-colors ${item.end_date ? 'opacity-50' : ''}`}>
             <div className="w-[22%] text-center text-lg font-bold text-slate-500 whitespace-nowrap">{formatDate(item.date || item.created_at)}</div>
             <div className="flex-1 px-4 flex flex-col justify-center overflow-hidden">
               <span className="text-xl font-bold flex items-center gap-2 truncate">
                 {item.source || item.title}
-                {item.is_recurring && <Repeat size={14} className="text-purple-400" />}
+                {item.is_recurring && <Repeat size={14} className={item.end_date ? 'text-slate-600' : 'text-purple-400'} />}
               </span>
-              <span className="text-sm font-sans text-slate-400 tracking-wide truncate">{item.description || item.category}</span>
+              <span className="text-sm font-sans text-slate-400 tracking-wide truncate">{item.description || item.category} {item.end_date && '(Cancelled)'}</span>
             </div>
             <div className="w-[32%] flex justify-end items-center pr-1 whitespace-nowrap flex-shrink-0">
               <span className="text-lg font-extrabold text-green-400">+₹{item.amount}</span>
@@ -748,8 +768,11 @@ export default function Vault() {
                           <Lock size={16} /> Split Locked
                         </div>
                       )}
-                      <button onClick={() => setFormData(prev => ({...prev, isRecurring: !prev.isRecurring}))} className={`tour-vault-repeat flex-1 flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold transition-colors ${formData.isRecurring ? 'bg-purple-600 text-white border-purple-600' : 'hover:bg-slate-200 text-slate-800'}`}>
-                        <Repeat size={18} /> Monthly
+                      <button 
+                        onClick={() => !formData.endDate && setFormData(prev => ({...prev, isRecurring: !prev.isRecurring}))} 
+                        className={`tour-vault-repeat flex-1 flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold transition-colors ${formData.isRecurring ? 'bg-purple-600 text-white border-purple-600' : 'hover:bg-slate-200 text-slate-800'} ${formData.endDate ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <Repeat size={18} /> {formData.endDate ? 'Cancelled' : 'Monthly'}
                       </button>
                     </div>
 
@@ -777,7 +800,6 @@ export default function Vault() {
                                 className="px-3 py-2 border-b border-slate-100 hover:bg-slate-50 cursor-pointer flex justify-between items-center"
                               >
                                 <span className="font-bold text-slate-700 font-sans">{user.name}</span>
-                                {/* Privacy check: Call the maskPhone helper! */}
                                 <span className="text-xs text-slate-400 font-sans">{maskPhone(user.phone)}</span>
                               </div>
                             ))}
@@ -803,6 +825,12 @@ export default function Vault() {
                       </div>
                     )}
 
+                    {selectedId && formData.isRecurring && !formData.endDate && (
+                      <button onClick={() => handleCancelSubscription('expense')} className="w-full flex items-center justify-center gap-2 py-2 mt-4 border-2 border-red-500 text-red-500 rounded-md font-bold hover:bg-red-50 transition-colors">
+                        <X size={18} /> Stop Future Billing
+                      </button>
+                    )}
+
                     <button onClick={() => handleSave('expense')} className="w-full mt-4 bg-red-500 text-white font-black text-2xl py-3 rounded-sm shadow-[4px_4px_0px_#1e293b] border-2 border-slate-800 hover:translate-y-1 hover:shadow-none transition-all flex justify-center items-center gap-2">
                       <Check strokeWidth={4} /> STAMP IT
                     </button>
@@ -822,10 +850,20 @@ export default function Vault() {
                     <div><label className="text-xs font-bold text-slate-500 uppercase">Description</label><input type="text" value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})} placeholder="UI Design Project" className="w-full bg-transparent border-b-2 border-slate-400 border-dashed text-lg font-bold focus:outline-none focus:border-slate-800 py-1" /></div>
                     
                     <div className="flex gap-4 pt-2">
-                      <button onClick={() => setFormData(prev => ({...prev, isRecurring: !prev.isRecurring}))} className={`w-full flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold transition-colors ${formData.isRecurring ? 'bg-purple-600 text-white border-purple-600' : 'hover:bg-slate-200 text-slate-800'}`}>
-                        <Repeat size={18} /> Make Monthly
+                      <button 
+                        onClick={() => !formData.endDate && setFormData(prev => ({...prev, isRecurring: !prev.isRecurring}))} 
+                        className={`w-full flex items-center justify-center gap-2 py-2 border-2 border-slate-800 rounded-md font-bold transition-colors ${formData.isRecurring ? 'bg-purple-600 text-white border-purple-600' : 'hover:bg-slate-200 text-slate-800'} ${formData.endDate ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <Repeat size={18} /> {formData.endDate ? 'Cancelled' : 'Make Monthly'}
                       </button>
                     </div>
+
+                    {selectedId && formData.isRecurring && !formData.endDate && (
+                      <button onClick={() => handleCancelSubscription('income')} className="w-full flex items-center justify-center gap-2 py-2 mt-4 border-2 border-red-500 text-red-500 rounded-md font-bold hover:bg-red-50 transition-colors">
+                        <X size={18} /> Stop Future Deposits
+                      </button>
+                    )}
+
                     <button onClick={() => handleSave('income')} className="w-full mt-4 bg-green-500 text-white font-black text-2xl py-3 rounded-sm shadow-[4px_4px_0px_#1e293b] border-2 border-slate-800 hover:translate-y-1 hover:shadow-none transition-all flex justify-center items-center gap-2"><Check strokeWidth={4} /> DEPOSIT IT</button>
                   </div>
                 </div>
@@ -927,7 +965,6 @@ export default function Vault() {
                               className="px-3 py-2 border-b border-slate-100 hover:bg-slate-50 cursor-pointer flex justify-between items-center"
                             >
                               <span className="font-bold text-slate-700 font-sans">{user.name}</span>
-                              {/* Privacy check: Call the maskPhone helper! */}
                               <span className="text-xs text-slate-400 font-sans">{maskPhone(user.phone)}</span>
                             </div>
                           ))}

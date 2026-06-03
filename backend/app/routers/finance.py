@@ -1,6 +1,6 @@
 import calendar
 from app.utils import get_today_ist
-from datetime import date as dt_date # Prevent naming collisions
+from datetime import date as dt_date 
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,6 +20,7 @@ class IncomeCreate(BaseModel):
     created_at: Optional[dt_date] = None 
     description: Optional[str] = None
     is_recurring: bool = False
+    end_date: Optional[dt_date] = None # 🚀 NEW
 
 class SavingsCreate(BaseModel):
     user_id: int
@@ -33,7 +34,7 @@ class IncomeUpdate(BaseModel):
     description: Optional[str] = None
     created_at: Optional[dt_date] = None 
     is_recurring: Optional[bool] = None
-
+    end_date: Optional[dt_date] = None # 🚀 NEW
 
 class SavingsUpdate(BaseModel):
     amount: Optional[float] = None
@@ -48,6 +49,7 @@ class IncomeOut(BaseModel):
     description: Optional[str] = None
     created_at: Optional[dt_date] = None 
     is_recurring: bool = False
+    end_date: Optional[dt_date] = None # 🚀 NEW
     class Config:
         from_attributes = True
 
@@ -106,7 +108,7 @@ def lock_savings(payload: SavingsCreate, db: Session = Depends(get_db)):
         user_id=payload.user_id,
         amount=payload.amount,
         purpose=payload.purpose,
-        created_at=payload.created_at # Pydantic already converted this to a date!
+        created_at=payload.created_at
     )
     db.add(lock)
     db.commit()
@@ -126,7 +128,7 @@ def withdraw_savings(payload: SavingsWithdraw, db: Session = Depends(get_db)):
         user_id=payload.user_id,
         amount=-abs(payload.amount),  
         purpose=f"Withdrawal: {payload.purpose}",
-        created_at=payload.created_at # Pass directly!
+        created_at=payload.created_at
     )
     db.add(withdrawal)
     db.commit()
@@ -167,8 +169,9 @@ def log_income(payload: IncomeCreate, db: Session = Depends(get_db)):
         amount=payload.amount,
         source=payload.source,
         description=payload.description,
-        created_at=payload.created_at, # Pass directly!
-        is_recurring=payload.is_recurring
+        created_at=payload.created_at,
+        is_recurring=payload.is_recurring,
+        end_date=payload.end_date
     )
     db.add(income)
     db.commit()
@@ -177,15 +180,49 @@ def log_income(payload: IncomeCreate, db: Session = Depends(get_db)):
 
 @router.get("/income/user/{user_id}", response_model=List[IncomeOut])
 def get_incomes(user_id: int, month: int, year: int, db: Session = Depends(get_db)):
-    target_date = dt_date(year, month, 1)
+    target_month_start = dt_date(year, month, 1)
+    _, last_day = calendar.monthrange(year, month)
+    target_month_end = dt_date(year, month, last_day)
     
-    return db.query(models.Income).filter(
+    # 1. Normal Incomes
+    normal_incomes = db.query(models.Income).filter(
         models.Income.user_id == user_id,
-        or_(
-            and_(extract("month", models.Income.created_at) == month, extract("year", models.Income.created_at) == year),
-            and_(models.Income.is_recurring == True, models.Income.created_at <= target_date)
-        )
-    ).order_by(models.Income.created_at.desc()).all()
+        extract("month", models.Income.created_at) == month, 
+        extract("year", models.Income.created_at) == year,
+        models.Income.is_recurring == False
+    ).all()
+
+    # 2. Recurring Incomes (Checking Cancel Dates)
+    recurring_incomes = db.query(models.Income).filter(
+        models.Income.user_id == user_id,
+        models.Income.is_recurring == True,
+        models.Income.created_at <= target_month_end,
+        or_(models.Income.end_date == None, models.Income.end_date >= target_month_start)
+    ).all()
+
+    results = []
+    for inc in normal_incomes:
+        results.append(inc)
+
+    # 🚀 PROJECT RECURRING INCOMES INTO THE MONTH
+    for inc in recurring_incomes:
+        safe_day = min(inc.created_at.day, last_day) 
+        projected_date = dt_date(year, month, safe_day)
+        
+        inc_dict = {
+            "id": inc.id,
+            "user_id": inc.user_id,
+            "amount": inc.amount,
+            "source": inc.source,
+            "description": inc.description,
+            "created_at": projected_date, 
+            "is_recurring": True,
+            "end_date": inc.end_date
+        }
+        results.append(inc_dict)
+        
+    results.sort(key=lambda x: getattr(x, "created_at", x.get("created_at") if isinstance(x, dict) else dt_date.min), reverse=True)
+    return results
 
 @router.put("/income/{income_id}", response_model=IncomeOut)
 def update_income(income_id: int, payload: IncomeUpdate, db: Session = Depends(get_db)):
@@ -196,11 +233,22 @@ def update_income(income_id: int, payload: IncomeUpdate, db: Session = Depends(g
     if payload.source is not None: income.source = payload.source
     if payload.description is not None: income.description = payload.description
     if payload.created_at is not None: income.created_at = payload.created_at 
+    if payload.end_date is not None: income.end_date = payload.end_date
     if hasattr(payload, 'is_recurring') and payload.is_recurring is not None:
         income.is_recurring = payload.is_recurring
     db.commit()
     db.refresh(income)
     return income
+
+# 🚀 NEW: Discontinue Recurring Income Endpoint
+@router.put("/income/{income_id}/cancel")
+def cancel_recurring_income(income_id: int, db: Session = Depends(get_db)):
+    income = db.query(models.Income).filter(models.Income.id == income_id).first()
+    if not income: raise HTTPException(status_code=404)
+    
+    income.end_date = get_today_ist()
+    db.commit()
+    return {"detail": "Recurring income cancelled successfully."}
 
 @router.delete("/income/{income_id}")
 def delete_income(income_id: int, db: Session = Depends(get_db)):
@@ -242,28 +290,62 @@ def summary(user_id: int, month: int, year: int, db: Session = Depends(get_db)):
         models.MonthlyBudget.user_id == user_id, models.MonthlyBudget.month == month, models.MonthlyBudget.year == year
     ).scalar()
 
-    target_date = dt_date(year, month, 1)
+    target_month_start = dt_date(year, month, 1)
+    _, last_day = calendar.monthrange(year, month)
+    target_month_end = dt_date(year, month, last_day)
 
-    total_income = db.query(func.coalesce(func.sum(models.Income.amount), 0.0)).filter(
+    # 🚀 FIX: Calculate Income precisely incorporating recurring bounds
+    normal_income = db.query(func.coalesce(func.sum(models.Income.amount), 0.0)).filter(
+        models.Income.user_id == user_id, 
+        extract("month", models.Income.created_at) == month, 
+        extract("year", models.Income.created_at) == year,
+        models.Income.is_recurring == False
+    ).scalar()
+    
+    recurring_income = db.query(func.coalesce(func.sum(models.Income.amount), 0.0)).filter(
         models.Income.user_id == user_id,
-        or_(
-            and_(extract("month", models.Income.created_at) == month, extract("year", models.Income.created_at) == year),
-            and_(models.Income.is_recurring == True, models.Income.created_at <= target_date)
-        )
+        models.Income.is_recurring == True,
+        models.Income.created_at <= target_month_end,
+        or_(models.Income.end_date == None, models.Income.end_date >= target_month_start)
     ).scalar()
+    total_income = normal_income + recurring_income
 
-    total_expenses = db.query(func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
+    # 🚀 FIX: Calculate Expenses precisely incorporating recurring bounds
+    normal_expenses = db.query(func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
+        models.Expense.user_id == user_id, 
+        extract("month", models.Expense.date) == month, 
+        extract("year", models.Expense.date) == year,
+        models.Expense.is_recurring == False
+    ).scalar()
+    
+    recurring_expenses = db.query(func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
         models.Expense.user_id == user_id,
-        or_(
-            and_(extract("month", models.Expense.date) == month, extract("year", models.Expense.date) == year),
-            and_(models.Expense.is_recurring == True, models.Expense.date <= target_date)
-        )
+        models.Expense.is_recurring == True,
+        models.Expense.date <= target_month_end,
+        or_(models.Expense.end_date == None, models.Expense.end_date >= target_month_start)
     ).scalar()
+    total_expenses = normal_expenses + recurring_expenses
 
-    category_totals = db.query(models.Expense.category, func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
-        models.Expense.user_id == user_id, extract("month", models.Expense.date) == month, extract("year", models.Expense.date) == year
+    # 🚀 NEW FIXED CODE: Sum normal and recurring categories separately, then merge them!
+    normal_cat_totals = db.query(models.Expense.category, func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
+        models.Expense.user_id == user_id, 
+        extract("month", models.Expense.date) == month, 
+        extract("year", models.Expense.date) == year,
+        models.Expense.is_recurring == False
     ).group_by(models.Expense.category).all()
-    category_breakdown = {cat: amount for cat, amount in category_totals}
+    
+    recurring_cat_totals = db.query(models.Expense.category, func.coalesce(func.sum(models.Expense.amount), 0.0)).filter(
+        models.Expense.user_id == user_id,
+        models.Expense.is_recurring == True,
+        models.Expense.date <= target_month_end,
+        or_(models.Expense.end_date == None, models.Expense.end_date >= target_month_start)
+    ).group_by(models.Expense.category).all()
+
+    category_breakdown = {}
+    for cat, amount in normal_cat_totals:
+        category_breakdown[cat] = category_breakdown.get(cat, 0.0) + amount
+    for cat, amount in recurring_cat_totals:
+        category_breakdown[cat] = category_breakdown.get(cat, 0.0) + amount
 
     monthly_savings = db.query(func.coalesce(func.sum(models.SavingsLock.amount), 0.0)).filter(
         models.SavingsLock.user_id == user_id, extract("month", models.SavingsLock.created_at) == month, extract("year", models.SavingsLock.created_at) == year
@@ -283,19 +365,18 @@ def summary(user_id: int, month: int, year: int, db: Session = Depends(get_db)):
     available_to_spend = max(0, net_cash - monthly_savings)
     
     today = get_today_ist()
-    _, total_days_in_month = calendar.monthrange(year, month)
     
     if month == today.month and year == today.year:
         days_passed = today.day
-        days_remaining = (total_days_in_month - days_passed) + 1 
+        days_remaining = (last_day - days_passed) + 1 
     elif year < today.year or (year == today.year and month < today.month):
-        days_passed = total_days_in_month
+        days_passed = last_day
         days_remaining = 0
     else:
         days_passed = 0
-        days_remaining = total_days_in_month
+        days_remaining = last_day
 
-    ideal_month_avg = round(((total_budget + total_income) - monthly_savings) / total_days_in_month, 2) if total_days_in_month > 0 else 0.0
+    ideal_month_avg = round(((total_budget + total_income) - monthly_savings) / last_day, 2) if last_day > 0 else 0.0
     current_avg = round(total_expenses / days_passed, 2) if days_passed > 0 else 0.0
     needed_avg = round(available_to_spend / days_remaining, 2) if days_remaining > 0 else 0.0
 

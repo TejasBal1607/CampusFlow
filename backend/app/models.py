@@ -47,6 +47,7 @@ class Expense(Base):
     description = Column(String)
     date = Column(Date, default=get_today_ist())
     is_recurring = Column(Boolean, default=False)
+    end_date = Column(Date, nullable=True)
     owner = relationship("User", back_populates="expenses")
 
 
@@ -59,6 +60,7 @@ class Income(Base):
     description = Column(String)
     created_at = Column(Date, default=get_today_ist())
     is_recurring = Column(Boolean, default=False)
+    end_date = Column(Date, nullable=True)
     owner = relationship("User", back_populates="incomes")
 
 
