@@ -45,6 +45,16 @@ const getThaparBatches = (targetYear: number | null) => {
 
 const THAPAR_STREAMS = ['COE', 'COBS', 'COPC', 'DSAI', 'RAI', 'ENC', 'EEC', 'ELE', 'ECE', 'MEE', 'MEC', 'EVD', 'EIC', 'CCA', 'CIE', 'CHE', 'BME', 'BT'];
 
+// 🚀 NEW: Map Roll Number middle digits to Streams
+const ROLL_TO_STREAM_MAP: Record<string, string> = {
+  '030': 'COE',
+  '170': 'COPC',
+  '150': 'ENC',
+  '060': 'ECE',
+  '250': 'DSAI',
+  '180': 'COBS'
+};
+
 const getJoiningYear = (email: string) => {
   const match = email?.match(/_be(\d{2})@thapar\.edu/);
   return match ? parseInt(match[1]) : null;
@@ -374,11 +384,30 @@ export default function App() {
   const handleRollNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.toUpperCase();
     if (val === 'N/A') { setEditForm({ ...editForm, rollNumber: val }); return; }
+    
     val = val.replace(/\D/g, ''); 
     const yy = getJoiningYear(userDetails.email);
     const prefix = yy ? `10${yy}` : '10';
     if (!val.startsWith(prefix) && val.length > 0) val = prefix; 
-    if (val.length <= 10) setEditForm({ ...editForm, rollNumber: val });
+    
+    let autoDetectedStream = editForm.stream;
+
+    // 🚀 THE MAGIC: Extract digits 5, 6, and 7 (indexes 4 to 6)
+    // e.g. "10 25 030 123" -> Extracts "030"
+    if (val.length >= 7) {
+      const branchCode = val.substring(4, 7);
+      if (ROLL_TO_STREAM_MAP[branchCode]) {
+        autoDetectedStream = ROLL_TO_STREAM_MAP[branchCode];
+      }
+    }
+
+    if (val.length <= 10) {
+      setEditForm({ 
+        ...editForm, 
+        rollNumber: val, 
+        stream: autoDetectedStream // Automatically sets the dropdown!
+      });
+    }
   };
 
   const openEditProfile = () => {
@@ -596,7 +625,7 @@ export default function App() {
                     <div className="space-y-4">
                       {settingsFieldsToDisplay.map(label => {
                         const key = label.toLowerCase() === 'semester' ? 'semester' : label.toLowerCase() as keyof typeof userDetails;
-                        const isDisabled = label === 'Semester';
+                        const isDisabled = label === 'Semester' || label === 'Stream';
                         
                         return (
                           <div key={label} className="flex justify-between items-end group border-b border-slate-800 pb-1">
