@@ -104,36 +104,41 @@ async def get_timetable(db: Session = Depends(get_db), current_user: models.User
     if not batch or batch == "Unassigned":
         raise HTTPException(status_code=400, detail="User batch not set.")
 
+    # Normalize the batch (e.g., "1A11")
     batch_key = normalize_request_batch(batch)
-    main_group_key = batch_key[:-1] if len(batch_key) >= 4 else batch_key
+    
+    # Check if the exact batch key exists in the JSON, fallback to raw user input if needed
+    target_key = batch_key if batch_key in MASTER_TIMETABLE else batch
+    
+    if target_key not in MASTER_TIMETABLE:
+        raise HTTPException(status_code=404, detail=f"Timetable not found for batch {batch}")
 
     user_schedule = [{"day": d, "classes": []} for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']]
-    found_data = False
+    batch_data = MASTER_TIMETABLE[target_key]
 
-    # Grab Lectures
-    if main_group_key in MASTER_TIMETABLE:
-        found_data = True
-        for i, day in enumerate(MASTER_TIMETABLE[main_group_key]):
-            user_schedule[i]["classes"].extend(day["classes"])
+    # 🚀 PARSE THE ACM JSON STRUCTURE
+    for i, day in enumerate(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']):
+        if day in batch_data:
+            # The ACM JSON maps time strings to arrays: "09:40 AM": ["Code", "Venue", "Subject", "Type"]
+            for time_str, class_info in batch_data[day].items():
+                if isinstance(class_info, list) and len(class_info) >= 4:
+                    user_schedule[i]["classes"].append({
+                        "time": time_str,
+                        "venue": class_info[1],   # Index 1 is Venue (e.g., "LP101")
+                        "name": class_info[2],    # Index 2 is Subject (e.g., "PROFESSIONAL COMMUNICATION")
+                        "type": class_info[3]     # Index 3 is Type (e.g., "Lecture")
+                    })
 
-    # Grab Labs/Tutorials
-    if batch_key in MASTER_TIMETABLE:
-        found_data = True
-        for i, day in enumerate(MASTER_TIMETABLE[batch_key]):
-            user_schedule[i]["classes"].extend(day["classes"])
-
-    if not found_data:
-        raise HTTPException(status_code=404, detail="Timetable not found for your batch.")
-
-    # Chronological sort
+    # 🕒 CHRONOLOGICAL SORT
     def time_to_mins(time_str):
         try:
-            hm, period = time_str.split(' ')
+            hm, period = time_str.strip().split(' ')
             h, m = map(int, hm.split(':'))
-            if period == 'PM' and h != 12: h += 12
-            if period == 'AM' and h == 12: h = 0
+            if period.upper() == 'PM' and h != 12: h += 12
+            if period.upper() == 'AM' and h == 12: h = 0
             return h * 60 + m
-        except: return 0
+        except: 
+            return 0
 
     for day in user_schedule:
         day["classes"] = sorted(day["classes"], key=lambda c: time_to_mins(c["time"]))
