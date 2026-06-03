@@ -22,6 +22,11 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
     name: 'Loading...', time: '', location: '', isFree: false
   });
 
+  // 🚀 NEW: Dynamic Bazaar Widget State
+  const [bazaarNotices, setBazaarNotices] = useState<any[]>([
+    { id: 'fallback', type: 'BAZAAR', title: 'Loading...', desc: 'Fetching latest grid activity.', meta: '' }
+  ]);
+
   const userName = localStorage.getItem('cf_name')?.split(' ')[0] || 'Student';
 
   useEffect(() => {
@@ -30,14 +35,16 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
     const fetchAllData = async () => {
       if (!token) return;
 
+      // 1. Fetch Auth Profile
       try {
         const profileRes = await axios.get(`${API_HOST}/auth/me?token=${token}`);
         setUserData({ role: profileRes.data.role, batch: profileRes.data.batch, hostel: profileRes.data.hostel });
         
         const confRes = await axios.get(`${API_HOST}/auth/config/freshers`);
         setFresherConfig(confRes.data);
-      } catch (e) { }
+      } catch (e) {}
 
+      // 2. Fetch Finance
       try {
         const today = new Date();
         const currentUserId = parseInt(JSON.parse(atob(token.split('.')[1])).sub) || 1; 
@@ -54,6 +61,7 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
         setIsLoadingFinance(false);
       }
 
+      // 3. Fetch Timetable
       try {
         if (!cachedTimetable) {
           const timeRes = await axios.get(`${API_HOST}/daily/timetable?token=${token}`);
@@ -66,6 +74,34 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
         } else {
           setNextClassInfo({ name: 'Offline', time: '', location: '', isFree: true });
         }
+      }
+
+      // 🚀 4. FETCH BAZAAR DATA FOR SLIDESHOW
+      try {
+        const [marketRes, eventsRes] = await Promise.all([
+          axios.get(`${API_HOST}/bazaar/market`),
+          axios.get(`${API_HOST}/bazaar/events`)
+        ]);
+        
+        // Grab top 3 events
+        const topEvents = (eventsRes.data || []).slice(0, 3).map((e: any) => ({
+          id: `e-${e.id}`, type: 'EVENT', title: e.title, desc: e.desc, meta: e.date
+        }));
+        
+        // Grab top 3 market items
+        const topMarket = (marketRes.data || []).slice(0, 3).map((m: any) => ({
+          id: `m-${m.id}`, type: 'MARKET', title: m.title, desc: m.description, meta: `₹${m.price}`
+        }));
+        
+        const combined = [...topEvents, ...topMarket];
+        
+        if (combined.length > 0) {
+          setBazaarNotices(combined);
+        } else {
+          setBazaarNotices([{ id: 'empty', type: 'BAZAAR', title: 'Grid is Quiet', desc: 'No active events or market listings right now.', meta: 'Be the first!' }]);
+        }
+      } catch (e) {
+        console.error("Failed to fetch bazaar notices");
       }
     };
 
@@ -124,19 +160,13 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
     return () => clearInterval(interval);
   }, []);
 
-  const notices = [
-    {
-      id: 1,
-      title: 'New Bazaar Feature',
-      description: 'Coming Soon!!',
-    }  ];
-
+  // 🚀 Auto-Rotate Slideshow
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentNoticeIndex((prev) => (prev + 1) % notices.length);
+      setCurrentNoticeIndex((prev) => (prev + 1) % Math.max(1, bazaarNotices.length));
     }, 5000);
     return () => clearInterval(timer);
-  }, [notices.length]);
+  }, [bazaarNotices.length]);
 
   const itemVariants = {
     hidden: { opacity: 0, y: 20 },
@@ -148,12 +178,14 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
     visible: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.15 } },
   };
 
+  const currentNotice = bazaarNotices[currentNoticeIndex] || bazaarNotices[0];
+
   return (
     <div className="max-w-md mx-auto w-full min-h-[100dvh] relative overflow-x-hidden shadow-2xl border-x border-slate-700 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:24px_24px] bg-slate-900 flex flex-col">
       
       <motion.div className="flex-1 overflow-y-auto px-4 pt-4 pb-28 flex flex-col z-10" variants={containerVariants} initial="hidden" animate="visible">
         
-        {/* NEW FADED DASHBOARD GREETING */}
+        {/* FADED DASHBOARD GREETING */}
         <div className="flex justify-center pt-2 pb-6">
           <h2 className="text-2xl font-black text-slate-500/80 uppercase tracking-widest drop-shadow-sm text-center">
             Hi, {userName}!
@@ -238,12 +270,13 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
         </div>
 
         <motion.div
+          onClick={() => navigateTo('bazaar')}
           variants={itemVariants}
           className="cursor-pointer relative flex-grow flex flex-col outline-none focus:outline-none select-none [-webkit-tap-highlight-color:transparent] mb-6"
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.99 }}
         >
-          <div className="bg-slate-100 text-slate-900 rotate-[2deg] p-8 relative flex-grow flex flex-col border-none ring-0 overflow-hidden shadow-xl min-h-[300px]">
+          <div className="bg-slate-100 text-slate-900 rotate-[2deg] p-8 relative flex-grow flex flex-col border-none ring-0 overflow-hidden shadow-[6px_6px_0px_rgba(0,0,0,0.5)] min-h-[300px] rounded-sm">
             <div className="absolute inset-0 opacity-[0.15] pointer-events-none" style={{
               backgroundImage: `url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" /></filter><rect width="100" height="100" fill="%23000" filter="url(%23noise)" opacity="0.05"/></svg>')`,
               backgroundSize: '200px 200px',
@@ -256,20 +289,38 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
             <AnimatePresence mode="wait">
               <motion.div 
                 key={currentNoticeIndex}
-                className="pt-6 flex-grow flex flex-col relative z-10"
+                className="pt-4 flex-grow flex flex-col relative z-10"
                 initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.4 }}
               >
-                <p className="text-3xl font-extrabold mb-4 text-slate-900 leading-tight">
-                  {notices[currentNoticeIndex].title}
+                <div className="flex items-center justify-between mb-3 font-sans">
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest ${
+                    currentNotice?.type === 'EVENT' ? 'bg-rose-500 text-white' : 
+                    currentNotice?.type === 'MARKET' ? 'bg-lime-400 text-slate-900' : 'bg-blue-500 text-white'
+                  }`}>
+                    {currentNotice?.type}
+                  </span>
+                  {currentNotice?.meta && (
+                    <span className="text-xs font-bold text-slate-500 bg-slate-200 px-2 py-0.5 rounded-sm">
+                      {currentNotice.meta}
+                    </span>
+                  )}
+                </div>
+                
+                <p className="text-3xl font-black mb-3 text-slate-900 leading-tight line-clamp-2">
+                  {currentNotice?.title}
                 </p>
-                <p className="text-xl text-slate-800 font-medium leading-snug">
-                  {notices[currentNoticeIndex].description}
+                <p className="text-xl text-slate-800 font-bold leading-snug line-clamp-3">
+                  {currentNotice?.desc}
+                </p>
+                
+                <p className="mt-auto pt-4 text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1 font-sans">
+                  Click to open Bazaar <ShoppingBag size={14} />
                 </p>
               </motion.div>
             </AnimatePresence>
 
             <div className="absolute bottom-6 left-0 w-full flex justify-center gap-2 z-10">
-              {notices.map((_, idx) => (
+              {bazaarNotices.map((_, idx) => (
                 <div 
                   key={idx} 
                   className={`w-2.5 h-2.5 rounded-full ${idx === currentNoticeIndex ? 'bg-slate-800' : 'bg-slate-300'}`}
@@ -302,7 +353,7 @@ export default function Dashboard({ navigateTo }: { navigateTo: (tab: string) =>
 
       <AnimatePresence>
         {userData.role === 'guest' && (!userData.batch || userData.batch === '') && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4 font-sans">
             <div className="bg-slate-900 border-2 border-blue-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(59,130,246,0.2)]">
               <h2 className="text-2xl font-black text-white uppercase tracking-widest mb-2">Welcome to CampusFLOW</h2>
               <p className="text-sm text-slate-400 font-sans mb-6">Since you logged in with a personal email, you're in Guest Mode. Tell us where you belong.</p>
