@@ -184,20 +184,16 @@ class Location(Base):
     description = Column(String)
     image_url = Column(String)
     coordinates = Column(String, nullable=True) # e.g. "30.3564,76.3647"
-    
-    tags = Column(JSON, default=list) # e.g. ["Eatery", "Open Late", "Coffee"]
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
+    category = Column(JSON, default=list) # e.g. ["Eatery", "Open Late", "Coffee"]
+    avg_rating = Column(Float, default=0.0) # Updated via triggers or application logic
 
 
-class LocationReview(Base):
-    __tablename__ = "location_reviews"
+class LocationRatings(Base):
+    __tablename__ = "location_ratings"
     id = Column(Integer, primary_key=True, index=True)
     location_id = Column(Integer, ForeignKey("locations.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
     rating = Column(Integer, nullable=False) # 1 to 5
-    comment = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Event(Base):

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, String
 from typing import List, Optional
 from app.database import get_db
-from app.models import Location, LocationReview
+from app.models import Location, LocationRatings
 
 router = APIRouter(prefix="/navigator", tags=["Campus Navigator"])
 
@@ -20,10 +20,10 @@ def smart_search_locations(query: Optional[str] = "", db: Session = Depends(get_
     
     # 1. Subquery to calculate Average Rating and Total Review Count per location
     review_stats = db.query(
-        LocationReview.location_id,
-        func.round(func.avg(LocationReview.rating), 1).label('avg_rating'),
-        func.count(LocationReview.id).label('review_count')
-    ).group_by(LocationReview.location_id).subquery()
+        LocationRatings.location_id,
+        func.round(func.avg(LocationRatings.rating), 1).label('avg_rating'),
+        func.count(LocationRatings.id).label('review_count')
+    ).group_by(LocationRatings.location_id).subquery()
 
     # 2. Main Query: Join Locations with their calculated Review Stats
     base_query = db.query(

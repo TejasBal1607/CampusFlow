@@ -9,6 +9,8 @@ from app.routers import users
 from app.routers import auth
 from app.routers import daily
 from app.routers import admin
+from app.routers import locations
+from app.routers import bazaar
 
 from fastapi.middleware.cors import CORSMiddleware
 # This generates the tables in Neon!
@@ -31,6 +33,8 @@ app.include_router(finance.router)
 app.include_router(auth.router)
 app.include_router(daily.router)
 app.include_router(admin.router)
+app.include_router(locations.router)
+app.include_router(bazaar.router)
 
 
 
