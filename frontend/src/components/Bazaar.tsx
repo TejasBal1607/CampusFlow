@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingBag, Ticket, MessageCircle, MapPin, Heart, Info, Search, Plus, Loader2, X, Image as ImageIcon, Edit2, Trash2, Check } from 'lucide-react';
+import { ShoppingBag, Ticket, MessageCircle, MapPin, Heart, Info, Search, Plus, Loader2, X, Image as ImageIcon, Edit2, Trash2, Check, Film, Volume2, VolumeX, PlayCircle, Clock } from 'lucide-react';
 import axios from 'axios';
 
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
@@ -16,6 +16,169 @@ const formatTimeAgo = (isoString: string) => {
   return `${diffDays}d ago`;
 };
 
+// 🚀 MEDIA DETECTOR
+const isVideo = (url: string) => {
+  if (!url) return false;
+  if (url.startsWith('data:video/')) return true;
+  return url.match(/\.(mp4|webm|mov|ogg)$/i) !== null;
+};
+
+// 🚀 THE DEDICATED REEL COMPONENT
+const ReelItem = ({ event, currentUserId, toggleLike, likedEvents }: any) => {
+  const [isMuted, setIsMuted] = useState(true);
+  const [isEnded, setIsEnded] = useState(false);
+  const [showInfo, setShowInfo] = useState(false); 
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // 🚀 FIX: React DOM Mute Override
+  const toggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newMutedState = !isMuted;
+    setIsMuted(newMutedState);
+    if (videoRef.current) {
+      videoRef.current.muted = newMutedState; // Forces browser DOM update
+    }
+  };
+
+  const handleVideoTap = () => {
+    if (!videoRef.current) return;
+    if (isEnded) {
+      videoRef.current.currentTime = 0; // Rewind to start
+      videoRef.current.play();
+      setIsEnded(false);
+    } else {
+      if (videoRef.current.paused) videoRef.current.play();
+      else videoRef.current.pause();
+    }
+  };
+
+  return (
+    <div className="relative w-full h-full snap-start bg-black overflow-hidden flex flex-col justify-end font-sans">
+      
+      {isVideo(event.poster_url) ? (
+        <>
+          <video 
+            ref={videoRef}
+            src={event.poster_url} 
+            autoPlay 
+            playsInline
+            muted={isMuted} // Sets initial state
+            onEnded={() => setIsEnded(true)}
+            onClick={handleVideoTap}
+            className="absolute inset-0 w-full h-full object-cover cursor-pointer" 
+          />
+          <button onClick={toggleMute} className="absolute top-4 right-4 z-50 p-3 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-colors">
+            {isMuted ? <VolumeX size={20}/> : <Volume2 size={20}/>}
+          </button>
+        </>
+      ) : (
+        <img src={event.poster_url} className="absolute inset-0 w-full h-full object-cover" />
+      )}
+
+      {/* DARKEN ENGINE */}
+      <div className={`absolute inset-0 bg-black transition-opacity duration-500 pointer-events-none ${isEnded ? 'opacity-70' : 'opacity-0'}`} />
+      <div className="absolute bottom-0 left-0 right-0 h-[40%] bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+
+      {isEnded && isVideo(event.poster_url) && (
+         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+            <PlayCircle size={64} className="text-white opacity-80" />
+         </div>
+      )}
+
+      {/* EVENT UI OVERLAY */}
+      <div className="relative z-20 p-5 flex items-end justify-between w-full">
+        <div className="flex-1 text-white pr-4 pb-2">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-full border-2 border-rose-500 overflow-hidden bg-slate-900 flex justify-center items-center font-black text-rose-500 text-xs shadow-lg">
+              {(event.organizer || 'C').charAt(0).toUpperCase()}
+            </div>
+            <p className="font-bold text-rose-400 text-sm shadow-black drop-shadow-md">@{event.organizer}</p>
+          </div>
+          <h2 className="text-3xl font-black mb-1 leading-tight drop-shadow-md">{event.title}</h2>
+        </div>
+
+        <div className="flex flex-col items-center gap-5 pb-2">
+          <button onClick={() => toggleLike(event.id)} className="flex flex-col items-center gap-1 group">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+              likedEvents.has(event.id) ? 'bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.6)]' : 'bg-slate-900/60 backdrop-blur-md border-2 border-slate-600 active:scale-95'
+            }`}>
+              <Heart size={22} className={likedEvents.has(event.id) ? 'text-white fill-white' : 'text-white'} />
+            </div>
+            <span className="text-[10px] font-bold text-slate-200">{event.likes || 0}</span>
+          </button>
+
+          <button onClick={() => event.registration_link ? window.open(event.registration_link, '_blank') : alert("No link provided")} className="flex flex-col items-center gap-1 group active:scale-95 transition-transform">
+            <div className="w-12 h-12 bg-lime-400 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(163,230,53,0.4)]">
+              <Ticket size={22} className="text-slate-950" />
+            </div>
+            <span className="text-[10px] font-bold text-slate-200">Register</span>
+          </button>
+
+          <button onClick={() => setShowInfo(true)} className="flex flex-col items-center gap-1 group active:scale-95">
+            <div className="w-12 h-12 bg-slate-900/60 backdrop-blur-md rounded-full border-2 border-slate-600 flex items-center justify-center transition-colors">
+              <Info size={22} className="text-white" />
+            </div>
+            <span className="text-[10px] font-bold text-slate-200">Info</span>
+          </button>
+        </div>
+      </div>
+
+      {/* INFO BOTTOM SHEET */}
+      <AnimatePresence>
+        {showInfo && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+              className="absolute inset-0 z-40 bg-black/40 backdrop-blur-sm"
+              onClick={() => setShowInfo(false)}
+            />
+            <motion.div 
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} 
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="absolute bottom-0 left-0 right-0 z-50 bg-slate-900 rounded-t-3xl border-t-2 border-slate-700 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] max-h-[75%] flex flex-col"
+            >
+              <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto my-3 shrink-0" />
+              
+              <div className="p-6 overflow-y-auto no-scrollbar flex-1 pb-10">
+                <div className="flex justify-between items-start mb-4">
+                  <h3 className="text-2xl font-black text-white">{event.title}</h3>
+                  <button onClick={() => setShowInfo(false)} className="bg-slate-800 p-2 rounded-full text-slate-400 hover:text-white shrink-0">
+                    <X size={16} />
+                  </button>
+                </div>
+                
+                <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 mb-6 space-y-3 shadow-inner">
+                  <div className="flex items-center gap-3">
+                    <MapPin size={18} className="text-rose-500 shrink-0" />
+                    <span className="text-sm font-bold text-slate-200">{event.venue || 'TBA'}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Clock size={18} className="text-lime-400 shrink-0" />
+                    <span className="text-sm font-bold text-slate-200">{event.date || 'TBA'}</span>
+                  </div>
+                </div>
+
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2"><Info size={14}/> About Event</h4>
+                <p className="text-slate-300 text-sm leading-relaxed mb-6 whitespace-pre-wrap">{event.desc || 'No description provided.'}</p>
+
+                {event.info_link && (
+                  <button 
+                    onClick={() => window.open(event.info_link, '_blank')}
+                    className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-500 transition-colors shadow-lg active:scale-95"
+                  >
+                    <Info size={18} /> View External Info
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+
 export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => void }) {
   const token = localStorage.getItem('cf_token');
   const currentUserId = token ? parseInt(JSON.parse(atob(token.split('.')[1])).sub) : 1;
@@ -26,8 +189,6 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
   const [marketItems, setMarketItems] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
-  // Track which events THIS user has liked
   const [likedEvents, setLikedEvents] = useState<Set<number>>(new Set());
 
   // MODAL STATES
@@ -38,8 +199,20 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
   const [selectedMarketItem, setSelectedMarketItem] = useState<any | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageContainerRef = useRef<HTMLDivElement>(null); 
+
   const [sellForm, setSellForm] = useState({ title: '', price: '', desc: '', tags: '', image: '' });
   const [eventForm, setEventForm] = useState({ title: '', venue: '', start: '', end: '', desc: '', regLink: '', infoLink: '', image: '' });
+
+  // SCROLL LOCK 
+  useEffect(() => {
+    if (activeTab === 'events') {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => { document.body.style.overflow = 'auto'; };
+  }, [activeTab]);
 
   const fetchBazaarData = async () => {
     try {
@@ -50,7 +223,6 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
       setMarketItems(marketRes.data || []);
       setEvents(eventsRes.data || []);
 
-      // 🚀 Initialize Local Like State from the DB Array
       const myLikes = new Set<number>();
       (eventsRes.data || []).forEach((e: any) => {
          if (e.liked_by && e.liked_by.includes(currentUserId)) {
@@ -88,7 +260,6 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
   const toggleLike = async (id: number) => {
     const isLiked = likedEvents.has(id);
     
-    // Optimistic UI Update
     setLikedEvents(prev => {
       const newSet = new Set(prev);
       if (isLiked) newSet.delete(id); else newSet.add(id);
@@ -97,7 +268,6 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
     setEvents(prev => prev.map(e => e.id === id ? { ...e, likes: Math.max(0, (e.likes || 0) + (isLiked ? -1 : 1)) } : e));
 
     try {
-      // 🚀 Pass user_id so the DB knows WHO is liking it!
       await axios.put(`${API_HOST}/bazaar/events/${id}/like?user_id=${currentUserId}`);
     } catch (e) {
       console.error("Failed to sync like.");
@@ -107,6 +277,12 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'sell' | 'event') => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
+    if (file.type.startsWith('video/') && file.size > 15 * 1024 * 1024) {
+       alert("Video is too large! Please keep demo videos under 15MB.");
+       return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
       if (type === 'sell') setSellForm(prev => ({...prev, image: reader.result as string}));
@@ -175,7 +351,7 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
   };
 
   const handlePostEvent = async () => {
-    if (!eventForm.title || !eventForm.venue || !eventForm.start || !eventForm.end || !eventForm.image) return alert("Please fill all required fields and add a poster!");
+    if (!eventForm.title || !eventForm.venue || !eventForm.start || !eventForm.end || !eventForm.image) return alert("Please fill all required fields and add media!");
     setIsSubmitting(true);
     try {
       await axios.post(`${API_HOST}/bazaar/events`, {
@@ -191,7 +367,6 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
     finally { setIsSubmitting(false); }
   };
 
-  // 🚀 FIX 1: Applied Grid Background Wrapper!
   return (
     <div className="w-full min-h-[100dvh] flex flex-col font-caveat relative bg-slate-950 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:24px_24px]">
       
@@ -260,7 +435,6 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
           {filteredItems.length > 0 ? (
             <div className="columns-2 gap-4 space-y-4">
               {filteredItems.map((item) => {
-                // 🚀 FIX: POLAROID / POST-IT STYLING
                 const isEven = item.id % 2 === 0;
                 const rotateClass = isEven ? 'rotate-2' : '-rotate-2';
 
@@ -270,16 +444,13 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
                     onClick={() => setSelectedMarketItem(item)}
                     className={`relative break-inside-avoid bg-slate-100 p-2 pb-5 rounded-sm shadow-[6px_6px_0px_rgba(0,0,0,0.5)] hover:rotate-0 transition-transform group cursor-pointer ${rotateClass}`}
                   >
-                    
-                    {/* The Tape */}
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-5 bg-white/50 backdrop-blur-sm border border-white/20 rotate-3 shadow-sm z-10" />
 
-                    {/* Floating Seller Actions */}
                     {item.seller_id === currentUserId && (
-                      <div className="absolute top-4 right-4 flex flex-col gap-2 z-10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                        <button onClick={(e) => { e.stopPropagation(); openEditModal(item); }} className="w-8 h-8 flex items-center justify-center bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-lime-400"><Edit2 size={14}/></button>
-                        <button onClick={(e) => { e.stopPropagation(); handleMarkSold(item.id); }} className="w-8 h-8 flex items-center justify-center bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-yellow-400" title="Mark as Sold"><Check size={14}/></button>
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }} className="w-8 h-8 flex items-center justify-center bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-red-400"><Trash2 size={14}/></button>
+                      <div className="absolute top-4 right-4 flex gap-1.5 z-10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => { e.stopPropagation(); openEditModal(item); }} className="p-2 bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-lime-400"><Edit2 size={14}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleMarkSold(item.id); }} className="p-2 bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-yellow-400" title="Mark as Sold"><Check size={14}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }} className="p-2 bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-red-400"><Trash2 size={14}/></button>
                       </div>
                     )}
 
@@ -307,68 +478,28 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
           ) : (
             <div className="py-16 flex flex-col items-center justify-center text-slate-500 font-bold text-center border-2 border-slate-800 border-dashed rounded-2xl font-sans bg-slate-900/50">
               <Search size={48} className="mb-4 opacity-20" />
-              <p>No items found for <br/><span className="text-slate-300">"{searchQuery}"</span></p>
+              <div className="text-center">
+                <span className="block">No items found for</span>
+                <span className="block text-slate-300 text-lg mt-1 break-words px-4">"{searchQuery}"</span>
+              </div>
             </div>
           )}
         </div>
 
       ) : (
 
-        <div className="px-2 font-sans">
-          <div className="w-full h-[calc(100dvh-11rem)] bg-black rounded-3xl overflow-y-scroll snap-y snap-mandatory no-scrollbar border-4 border-slate-800 shadow-[4px_4px_0px_#000] relative">
+        <div className="px-2 font-sans flex-1 overflow-hidden pb-20">
+          <div className="w-full h-[calc(100dvh-10rem)] bg-black rounded-3xl overflow-y-scroll snap-y snap-mandatory no-scrollbar overscroll-none border-4 border-slate-800 shadow-[4px_4px_0px_#000] relative">
             {events.length === 0 ? (
-               <div className="absolute inset-0 flex items-center justify-center text-slate-500 font-bold">No upcoming events scheduled.</div>
+               <div className="absolute inset-0 flex items-center justify-center text-slate-500 font-bold font-sans">No upcoming events scheduled.</div>
             ) : events.map((event) => (
-              <div key={event.id} className="relative w-full h-full snap-start bg-slate-900 overflow-hidden">
-                <img src={event.poster_url} className="absolute inset-0 w-full h-full object-cover opacity-80" />
-                <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent pointer-events-none" />
-
-                <div className="absolute bottom-0 left-0 right-0 p-5 flex items-end justify-between">
-                  <div className="flex-1 text-white pr-4 pb-2">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-full border-2 border-rose-500 overflow-hidden bg-slate-900 flex justify-center items-center font-black text-rose-500 text-xs">
-                        {(event.organizer || 'C').charAt(0).toUpperCase()}
-                      </div>
-                      <p className="font-bold text-rose-400 text-sm shadow-black drop-shadow-md">@{event.organizer}</p>
-                    </div>
-                    <h2 className="text-3xl font-black mb-1 leading-tight drop-shadow-md">{event.title}</h2>
-                    <p className="text-sm font-bold text-lime-400 mb-2 drop-shadow-md">{event.venue} • {event.date}</p>
-                    <p className="text-xs text-slate-200 line-clamp-3 leading-relaxed drop-shadow-md">{event.desc}</p>
-                  </div>
-
-                  <div className="flex flex-col items-center gap-5 pb-4">
-                    <button onClick={() => toggleLike(event.id)} className="flex flex-col items-center gap-1 group">
-                      <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-                        likedEvents.has(event.id) ? 'bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.6)]' : 'bg-slate-900/60 backdrop-blur-md border-2 border-slate-600 active:scale-95'
-                      }`}>
-                        <Heart size={22} className={likedEvents.has(event.id) ? 'text-white fill-white' : 'text-white'} />
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-200">{event.likes || 0}</span>
-                    </button>
-
-                    <button onClick={() => event.registration_link ? window.open(event.registration_link, '_blank') : alert("No link provided")} className="flex flex-col items-center gap-1 group active:scale-95 transition-transform">
-                      <div className="w-12 h-12 bg-lime-400 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(163,230,53,0.4)]">
-                        <Ticket size={22} className="text-slate-950" />
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-200">Register</span>
-                    </button>
-
-                    <button onClick={() => event.info_link ? window.open(event.info_link, '_blank') : alert("No extra info provided")} className="flex flex-col items-center gap-1 group active:scale-95">
-                      <div className="w-12 h-12 bg-slate-900/60 backdrop-blur-md rounded-full border-2 border-slate-600 flex items-center justify-center transition-colors">
-                        <Info size={22} className="text-white" />
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-200">Info</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+               <ReelItem key={event.id} event={event} currentUserId={currentUserId} toggleLike={toggleLike} likedEvents={likedEvents} />
             ))}
           </div>
         </div>
       )}
 
-      {/* DETAILED VIEW MODAL */}
+      {/* DETAILED VIEW MODAL FOR MARKETPLACE */}
       <AnimatePresence>
         {selectedMarketItem && (
           <motion.div 
@@ -384,7 +515,6 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
               onClick={(e) => e.stopPropagation()} 
               className="bg-slate-100 border-2 border-slate-300 w-full max-w-lg rounded-sm overflow-hidden shadow-2xl relative max-h-[90vh] flex flex-col"
             >
-              {/* Tape Effect on Details Modal too! */}
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-16 h-6 bg-white/50 backdrop-blur-sm border border-white/20 rotate-2 shadow-sm z-50 pointer-events-none" />
 
               <button 
@@ -394,8 +524,21 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
                 <X size={20}/>
               </button>
               
-              <div className="w-full h-64 sm:h-80 bg-slate-900 shrink-0 relative">
-                <img src={selectedMarketItem.image_url} alt={selectedMarketItem.title} className="w-full h-full object-contain" />
+              <div ref={imageContainerRef} className="w-full h-64 sm:h-80 bg-slate-900 shrink-0 relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing">
+                <motion.img 
+                  src={selectedMarketItem.image_url} 
+                  alt={selectedMarketItem.title} 
+                  className="max-w-full max-h-full object-contain origin-center"
+                  drag
+                  dragConstraints={imageContainerRef}
+                  dragElastic={0.2}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 1.5 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                />
+                <div className="absolute bottom-2 right-2 bg-black/50 text-white text-[10px] px-2 py-1 rounded backdrop-blur-sm pointer-events-none font-sans font-bold">
+                  Tap & Hold to Zoom
+                </div>
               </div>
               
               <div className="p-6 overflow-y-auto hide-scrollbar flex-1 bg-slate-100 text-slate-900">
@@ -518,10 +661,21 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
                 <div><label className="text-xs font-bold text-slate-500 uppercase">More Info Link (Optional)</label><input type="url" value={eventForm.infoLink} onChange={e => setEventForm({...eventForm, infoLink: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-blue-400 font-bold focus:border-rose-500 focus:outline-none text-sm" placeholder="https://instagram.com/..." /></div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Event Poster (9:16 Portrait Ideal)</label>
-                  <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={(e) => handleImageUpload(e, 'event')} />
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Media (Image or Video)</label>
+                  <input type="file" accept="image/*,video/*" ref={fileInputRef} className="hidden" onChange={(e) => handleImageUpload(e, 'event')} />
                   <div onClick={() => fileInputRef.current?.click()} className={`w-full h-40 border-2 border-dashed rounded-xl flex items-center justify-center cursor-pointer transition-colors ${eventForm.image ? 'border-rose-500 p-1' : 'border-slate-700 bg-slate-950 hover:bg-slate-800'}`}>
-                    {eventForm.image ? <img src={eventForm.image} className="w-full h-full object-cover rounded-lg" /> : <div className="flex flex-col items-center text-slate-500"><ImageIcon size={24} className="mb-2"/> <span className="text-xs font-bold uppercase">Upload Poster</span></div>}
+                    {eventForm.image ? (
+                      isVideo(eventForm.image) ? (
+                        <video src={eventForm.image} className="w-full h-full object-cover rounded-lg" autoPlay loop muted playsInline />
+                      ) : (
+                        <img src={eventForm.image} className="w-full h-full object-cover rounded-lg" />
+                      )
+                    ) : (
+                      <div className="flex flex-col items-center text-slate-500">
+                        <div className="flex gap-2 mb-2"><ImageIcon size={24}/><Film size={24}/></div>
+                        <span className="text-xs font-bold uppercase">Upload Media</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
