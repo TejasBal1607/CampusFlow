@@ -10,6 +10,7 @@ from app.routers import auth
 from app.routers import daily
 from app.routers import admin
 from app.routers import locations
+from app.routers import navigation
 from app.routers import bazaar
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +35,7 @@ app.include_router(auth.router)
 app.include_router(daily.router)
 app.include_router(admin.router)
 app.include_router(locations.router)
+app.include_router(navigation.router)
 app.include_router(bazaar.router)
 
 

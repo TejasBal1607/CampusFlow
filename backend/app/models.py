@@ -205,13 +205,13 @@ class Event(Base):
     poster_url = Column(String, nullable=False) # Crucial for the Insta-Story UI
     venue = Column(String)
     registration_link = Column(String, nullable=True)
-    
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False) # Frontend will use this to auto-delete expired stories
-    
+    likes = Column(Integer, default=0)
+    info_link = Column(String, nullable=True) # For "More Info" button on the event story
     status = Column(String, default="pending") # 'pending', 'approved'
     created_at = Column(DateTime, default=datetime.utcnow)
-
+    liked_by_users = Column(JSON, default=list) # 🚀 Tracks WHO liked the event
 
 class TODO(Base):
     __tablename__ = "todos"

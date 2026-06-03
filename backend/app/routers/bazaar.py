@@ -1,63 +1,198 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, String
+from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime
+import json
+
 from app.database import get_db
-from app.models import Location, LocationRatings
+from app import models
 
-router = APIRouter(prefix="/navigator", tags=["Campus Navigator"])
+router = APIRouter(prefix="/bazaar", tags=["Bazaar"])
 
-@router.get("/search")
-def smart_search_locations(query: Optional[str] = "", db: Session = Depends(get_db)):
-    """
-    Smart Search: 
-    1. Searches Location Name
-    2. Searches Description
-    3. Searches the JSON Tags (e.g., 'printout', 'food', 'stationary')
-    4. Calculates the average review rating
-    5. Orders results by highest rating first
-    """
+# --- SCHEMAS ---
+class MarketItemCreate(BaseModel):
+    user_id: int
+    title: str
+    price: float
+    description: str
+    tags: List[str]
+    image_url: str
+
+class EventCreate(BaseModel):
+    user_id: int
+    title: str
+    venue: str
+    start_time: datetime
+    end_time: datetime
+    description: str
+    poster_url: str
+    registration_link: Optional[str] = None
+    info_link: Optional[str] = None
+
+# --- MARKETPLACE ENDPOINTS ---
+@router.get("/market")
+def get_market_items(db: Session = Depends(get_db)):
+    items = db.query(models.MarketListing).filter(models.MarketListing.is_sold == False).order_by(models.MarketListing.created_at.desc()).all()
+    results = []
     
-    # 1. Subquery to calculate Average Rating and Total Review Count per location
-    review_stats = db.query(
-        LocationRatings.location_id,
-        func.round(func.avg(LocationRatings.rating), 1).label('avg_rating'),
-        func.count(LocationRatings.id).label('review_count')
-    ).group_by(LocationRatings.location_id).subquery()
+    for item in items:
+        raw_tags = item.tags
+        parsed_tags = []
+        if isinstance(raw_tags, list):
+            parsed_tags = raw_tags
+        elif isinstance(raw_tags, str):
+            try: parsed_tags = json.loads(raw_tags)
+            except: parsed_tags = [raw_tags]
 
-    # 2. Main Query: Join Locations with their calculated Review Stats
-    base_query = db.query(
-        Location, 
-        func.coalesce(review_stats.c.avg_rating, 0).label('avg_rating'), # Default to 0 if no reviews
-        func.coalesce(review_stats.c.review_count, 0).label('review_count')
-    ).outerjoin(review_stats, Location.id == review_stats.c.location_id)
+        seller = db.query(models.User).filter(models.User.id == item.seller_id).first()
+        phone = seller.phone if (seller and seller.phone) else "0000000000"
+        time_str = item.created_at.isoformat() + "Z" if item.created_at else None
 
-    # 3. The "Smart Search" Logic
-    if query:
-        search_term = f"%{query.lower()}%"
-        base_query = base_query.filter(
-            or_(
-                func.lower(Location.name).like(search_term),
-                func.lower(Location.description).like(search_term),
-                # If using Postgres, you can cast JSON to text to search inside it!
-                func.cast(Location.tags, String).ilike(search_term) 
-            )
-        )
-
-    # 4. Order by Highest Rating First
-    results = base_query.order_by(review_stats.c.avg_rating.desc().nullslast()).all()
-
-    # 5. Format the JSON payload for React
-    formatted_results = []
-    for loc, avg_rating, review_count in results:
-        formatted_results.append({
-            "id": loc.id,
-            "name": loc.name,
-            "description": loc.description,
-            "tags": loc.tags, # e.g. ["Stationary", "Printout"]
-            "coordinates": [float(x) for x in loc.coordinates.split(',')] if loc.coordinates else [0,0],
-            "rating": avg_rating,
-            "reviews": review_count
+        results.append({
+            "id": item.id,
+            "seller_id": item.seller_id, 
+            "title": item.title or "Untitled",
+            "price": item.price or 0.0,
+            "description": item.description or "",
+            "tags": parsed_tags, 
+            "image_url": item.image_url or "https://via.placeholder.com/400",
+            "time_posted": time_str,
+            "whatsapp": phone
         })
+    return results
 
-    return formatted_results
+@router.post("/market")
+def create_market_item(payload: MarketItemCreate, db: Session = Depends(get_db)):
+    new_item = models.MarketListing(
+        seller_id=payload.user_id,
+        title=payload.title,
+        price=payload.price,
+        description=payload.description,
+        tags=payload.tags,
+        image_url=payload.image_url,
+        is_sold=False
+    )
+    db.add(new_item)
+    db.commit()
+    db.refresh(new_item)
+    return {"status": "success", "id": new_item.id}
+
+@router.put("/market/{item_id}")
+def update_market_item(item_id: int, payload: MarketItemCreate, db: Session = Depends(get_db)):
+    item = db.query(models.MarketListing).filter(models.MarketListing.id == item_id).first()
+    if not item: raise HTTPException(status_code=404, detail="Item not found")
+    if item.seller_id != payload.user_id: raise HTTPException(status_code=403, detail="Not authorized")
+    
+    item.title = payload.title
+    item.price = payload.price
+    item.description = payload.description
+    item.tags = payload.tags
+    if payload.image_url:
+        item.image_url = payload.image_url
+        
+    db.commit()
+    return {"status": "updated"}
+
+@router.delete("/market/{item_id}")
+def delete_market_item(item_id: int, user_id: int, db: Session = Depends(get_db)):
+    item = db.query(models.MarketListing).filter(models.MarketListing.id == item_id).first()
+    if not item: raise HTTPException(status_code=404, detail="Item not found")
+    if item.seller_id != user_id: raise HTTPException(status_code=403, detail="Not authorized")
+    
+    db.delete(item)
+    db.commit()
+    return {"status": "deleted"}
+
+@router.put("/market/{item_id}/sold")
+def mark_item_sold(item_id: int, user_id: int, db: Session = Depends(get_db)):
+    item = db.query(models.MarketListing).filter(models.MarketListing.id == item_id).first()
+    if not item: raise HTTPException(status_code=404, detail="Item not found")
+    if item.seller_id != user_id: raise HTTPException(status_code=403, detail="Not authorized")
+    
+    item.is_sold = True 
+    db.commit()
+    return {"status": "marked_as_sold"}
+
+# --- EVENTS ENDPOINTS ---
+@router.get("/events")
+def get_events(db: Session = Depends(get_db)):
+    now = datetime.utcnow()
+    events = db.query(models.Event).filter(
+        models.Event.status != "rejected",
+        models.Event.end_time >= now
+    ).order_by(models.Event.start_time.asc()).all()
+    
+    results = []
+    for e in events:
+        org = db.query(models.User).filter(models.User.id == e.organizer_id).first()
+        org_name = org.name if (org and org.name) else "CampusFLOW"
+        date_str = e.start_time.strftime("%b %d, %I:%M %p") if e.start_time else "TBA"
+
+        # 🚀 Safely parse liked_by_users array
+        liked_by = e.liked_by_users
+        if isinstance(liked_by, str):
+            try: liked_by = json.loads(liked_by)
+            except: liked_by = []
+        elif not isinstance(liked_by, list):
+            liked_by = []
+
+        results.append({
+            "id": e.id,
+            "organizer": org_name,
+            "title": e.title or "Untitled",
+            "venue": e.venue or "TBA",
+            "date": date_str,
+            "desc": e.description or "",
+            "poster_url": e.poster_url or "https://via.placeholder.com/800",
+            "registration_link": e.registration_link,
+            "info_link": e.info_link,
+            "likes": len(liked_by), # Length of the array is the true like count
+            "liked_by": liked_by
+        })
+    return results
+
+@router.post("/events")
+def create_event(payload: EventCreate, db: Session = Depends(get_db)):
+    new_event = models.Event(
+        organizer_id=payload.user_id,
+        title=payload.title,
+        venue=payload.venue,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        description=payload.description,
+        poster_url=payload.poster_url,
+        registration_link=payload.registration_link,
+        info_link=payload.info_link,
+        status="approved" 
+    )
+    db.add(new_event)
+    db.commit()
+    db.refresh(new_event)
+    return {"status": "success", "id": new_event.id}
+
+# 🚀 THE LIKE FIX: Toggle user_id in the array!
+@router.put("/events/{event_id}/like")
+def toggle_like(event_id: int, user_id: int, db: Session = Depends(get_db)):
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if not event: raise HTTPException(404, detail="Event not found")
+    
+    liked_by = event.liked_by_users
+    if isinstance(liked_by, str):
+        try: liked_by = json.loads(liked_by)
+        except: liked_by = []
+    elif not isinstance(liked_by, list):
+        liked_by = []
+    else:
+        liked_by = list(liked_by) # Ensure mutable copy
+
+    if user_id in liked_by:
+        liked_by.remove(user_id)
+    else:
+        liked_by.append(user_id)
+        
+    event.liked_by_users = liked_by
+    event.likes = len(liked_by)
+    
+    db.commit()
+    return {"likes": event.likes}

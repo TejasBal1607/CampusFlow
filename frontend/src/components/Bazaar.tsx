@@ -1,71 +1,203 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { ShoppingBag, Ticket, MessageCircle, MapPin, Heart, Info, Search, Plus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ShoppingBag, Ticket, MessageCircle, MapPin, Heart, Info, Search, Plus, Loader2, X, Image as ImageIcon, Edit2, Trash2, Check } from 'lucide-react';
+import axios from 'axios';
 
-// --- DUMMY DATA ---
-const MOCK_ITEMS = [
-  { id: 1, title: "Omega Drafter (Almost New)", price: 350, category: "Academics", image_url: "https://images.unsplash.com/photo-1603484477859-abe6a73f9366?auto=format&fit=crop&w=400&q=80", time_posted: "2h ago", whatsapp: "919999999999" },
-  { id: 2, title: "Symphony 12L Cooler", price: 2500, category: "Electronics", image_url: "https://images.unsplash.com/photo-1585338107529-13afc5f02586?auto=format&fit=crop&w=400&q=80", time_posted: "5h ago", whatsapp: "919999999999" },
-  { id: 3, title: "Calculus James Stewart 8th Ed", price: 400, category: "Books", image_url: "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80", time_posted: "1d ago", whatsapp: "919999999999" },
-  { id: 4, title: "Hero Sprint Cycle", price: 3000, category: "Cycles", image_url: "https://images.unsplash.com/photo-1485965120184-e220f721d03e?auto=format&fit=crop&w=400&q=80", time_posted: "2d ago", whatsapp: "919999999999" },
-];
+const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
-const MOCK_EVENTS = [
-  { id: 1, organizer: "CCS", title: "Intra-CCS Hackathon", venue: "TAN Auditorium", date: "Tonight, 9:00 PM", desc: "The ultimate 24-hour coding showdown. Build the future of campus tech.", poster_url: "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=800&q=80" },
-  { id: 2, organizer: "Mudra", title: "Freshers Dance Showcase", venue: "Main Aud", date: "Tomorrow, 6:00 PM", desc: "Watch the newest batch light up the stage with breathtaking choreography.", poster_url: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=800&q=80" },
-  { id: 3, organizer: "Frosh", title: "Campus Tour Setup", venue: "C-Block", date: "Friday, 4:00 PM", desc: "Volunteers needed to help set up the interactive booths.", poster_url: "https://images.unsplash.com/photo-1523580494112-071d45740871?auto=format&fit=crop&w=800&q=80" },
-];
-
-const FILTERS = ['All', 'Academics', 'Electronics', 'Books', 'Cycles', 'Misc'];
+const formatTimeAgo = (isoString: string) => {
+  if (!isoString) return 'Just now';
+  const diffMs = new Date().getTime() - new Date(isoString).getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHrs = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  return `${diffDays}d ago`;
+};
 
 export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => void }) {
+  const token = localStorage.getItem('cf_token');
+  const currentUserId = token ? parseInt(JSON.parse(atob(token.split('.')[1])).sub) : 1;
+
   const [activeTab, setActiveTab] = useState<'market' | 'events'>('market');
-  const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   
+  const [marketItems, setMarketItems] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Track which events THIS user has liked
   const [likedEvents, setLikedEvents] = useState<Set<number>>(new Set());
 
-  // ✨ TOUR EVENT LISTENER
-  useEffect(() => {
-    const handleBazaarTab = (e: any) => setActiveTab(e.detail);
-    window.addEventListener('tour-bazaar-tab', handleBazaarTab);
-    return () => window.removeEventListener('tour-bazaar-tab', handleBazaarTab);
-  }, []);
+  // MODAL STATES
+  const [showSellModal, setShowSellModal] = useState(false);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [selectedMarketItem, setSelectedMarketItem] = useState<any | null>(null);
 
-  // Search & Filter combined logic
-  const filteredItems = MOCK_ITEMS.filter(item => 
-    (activeFilter === 'All' || item.category === activeFilter) &&
-    item.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sellForm, setSellForm] = useState({ title: '', price: '', desc: '', tags: '', image: '' });
+  const [eventForm, setEventForm] = useState({ title: '', venue: '', start: '', end: '', desc: '', regLink: '', infoLink: '', image: '' });
+
+  const fetchBazaarData = async () => {
+    try {
+      const [marketRes, eventsRes] = await Promise.all([
+        axios.get(`${API_HOST}/bazaar/market`),
+        axios.get(`${API_HOST}/bazaar/events`)
+      ]);
+      setMarketItems(marketRes.data || []);
+      setEvents(eventsRes.data || []);
+
+      // 🚀 Initialize Local Like State from the DB Array
+      const myLikes = new Set<number>();
+      (eventsRes.data || []).forEach((e: any) => {
+         if (e.liked_by && e.liked_by.includes(currentUserId)) {
+             myLikes.add(e.id);
+         }
+      });
+      setLikedEvents(myLikes);
+
+    } catch(error) {
+      console.error("Failed to fetch bazaar data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchBazaarData(); }, []);
+
+  const filteredItems = marketItems.filter(item => {
+    if (searchQuery.trim() === '') return true;
+    const search = searchQuery.toLowerCase();
+    if (search.startsWith('#')) {
+      const tagQuery = search.replace('#', '').trim();
+      if (!tagQuery) return true;
+      const safeTags = Array.isArray(item.tags) ? item.tags : [];
+      return safeTags.some((t: string) => (t || "").toLowerCase().includes(tagQuery));
+    }
+    return (item.title || "").toLowerCase().includes(search) || (item.description || "").toLowerCase().includes(search);
+  });
 
   const handleWhatsApp = (item: any) => {
-    const text = encodeURIComponent(`Hey! Is "${item.title}" still available on CampusFLOW?`);
+    const text = encodeURIComponent(`Hey! Is "${item.title || 'this item'}" still available on CampusFLOW?`);
     window.open(`https://wa.me/${item.whatsapp}?text=${text}`, '_blank');
   };
 
-  const toggleLike = (id: number) => {
+  const toggleLike = async (id: number) => {
+    const isLiked = likedEvents.has(id);
+    
+    // Optimistic UI Update
     setLikedEvents(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
+      if (isLiked) newSet.delete(id); else newSet.add(id);
       return newSet;
     });
+    setEvents(prev => prev.map(e => e.id === id ? { ...e, likes: Math.max(0, (e.likes || 0) + (isLiked ? -1 : 1)) } : e));
+
+    try {
+      // 🚀 Pass user_id so the DB knows WHO is liking it!
+      await axios.put(`${API_HOST}/bazaar/events/${id}/like?user_id=${currentUserId}`);
+    } catch (e) {
+      console.error("Failed to sync like.");
+    }
   };
 
-  // Leave your existing return statement exactly as it is below this line!
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'sell' | 'event') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (type === 'sell') setSellForm(prev => ({...prev, image: reader.result as string}));
+      else setEventForm(prev => ({...prev, image: reader.result as string}));
+    };
+    reader.readAsDataURL(file);
+  };
 
-  return (
-    <div className="w-full flex flex-col font-sans relative">
+  const openEditModal = (item: any) => {
+    setSelectedItemId(item.id);
+    setSellForm({
+      title: item.title,
+      price: item.price.toString(),
+      desc: item.description || '',
+      tags: item.tags ? item.tags.join(', ') : '',
+      image: item.image_url || ''
+    });
+    setShowSellModal(true);
+  };
+
+  const closeSellModal = () => {
+    setShowSellModal(false);
+    setSelectedItemId(null);
+    setSellForm({ title: '', price: '', desc: '', tags: '', image: '' });
+  };
+
+  const handleDeleteItem = async (id: number) => {
+    if (!confirm("Are you sure you want to remove this item?")) return;
+    try {
+      await axios.delete(`${API_HOST}/bazaar/market/${id}?user_id=${currentUserId}`);
+      if (selectedMarketItem?.id === id) setSelectedMarketItem(null);
+      fetchBazaarData();
+    } catch (e) { alert("Failed to delete item."); }
+  };
+
+  const handleMarkSold = async (id: number) => {
+    if (!confirm("Mark this item as sold? It will be removed from the active marketplace.")) return;
+    try {
+      await axios.put(`${API_HOST}/bazaar/market/${id}/sold?user_id=${currentUserId}`);
+      if (selectedMarketItem?.id === id) setSelectedMarketItem(null);
+      fetchBazaarData();
+    } catch (e) { alert("Failed to update item status."); }
+  };
+
+  const handlePostSell = async () => {
+    if (!sellForm.title || !sellForm.price || (!sellForm.image && !selectedItemId)) return alert("Title, Price, and Image are required!");
+    setIsSubmitting(true);
+    try {
+      const tagArray = sellForm.tags.split(',').map(t => t.trim().replace('#', '')).filter(t => t);
+      const payload = {
+        user_id: currentUserId, title: sellForm.title, price: parseFloat(sellForm.price),
+        description: sellForm.desc, tags: tagArray, image_url: sellForm.image
+      };
+
+      if (selectedItemId) {
+        await axios.put(`${API_HOST}/bazaar/market/${selectedItemId}`, payload);
+        if (selectedMarketItem) setSelectedMarketItem({...selectedMarketItem, ...payload});
+      } else {
+        await axios.post(`${API_HOST}/bazaar/market`, payload);
+      }
       
-      {/* 🚀 THE DYNAMIC HEADER NAV */}
-      <div 
-        className={`z-50 flex items-center w-full transition-all duration-500 ease-in-out ${
-          activeTab === 'events'
-            ? 'absolute top-4 left-1/2 -translate-x-1/2 scale-90 origin-top justify-center' // Centers and shrinks the pill
-            : 'sticky top-20 mb-6 px-4 pt-2 justify-between gap-2' // Pill left, Map right, no overflow
-        }`}
-      >
-        {/* The Pill */}
+      closeSellModal();
+      fetchBazaarData();
+    } catch (e) { alert("Failed to process market item."); } 
+    finally { setIsSubmitting(false); }
+  };
+
+  const handlePostEvent = async () => {
+    if (!eventForm.title || !eventForm.venue || !eventForm.start || !eventForm.end || !eventForm.image) return alert("Please fill all required fields and add a poster!");
+    setIsSubmitting(true);
+    try {
+      await axios.post(`${API_HOST}/bazaar/events`, {
+        user_id: currentUserId, title: eventForm.title, venue: eventForm.venue,
+        start_time: new Date(eventForm.start).toISOString(), end_time: new Date(eventForm.end).toISOString(),
+        description: eventForm.desc, poster_url: eventForm.image,
+        registration_link: eventForm.regLink || null, info_link: eventForm.infoLink || null
+      });
+      setShowEventModal(false);
+      setEventForm({ title: '', venue: '', start: '', end: '', desc: '', regLink: '', infoLink: '', image: '' });
+      fetchBazaarData();
+    } catch (e) { alert("Failed to post event."); } 
+    finally { setIsSubmitting(false); }
+  };
+
+  // 🚀 FIX 1: Applied Grid Background Wrapper!
+  return (
+    <div className="w-full min-h-[100dvh] flex flex-col font-caveat relative bg-slate-950 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:24px_24px]">
+      
+      <div className={`z-50 flex items-center w-full transition-all duration-500 ease-in-out ${
+        activeTab === 'events' ? 'absolute top-4 left-1/2 -translate-x-1/2 scale-90 origin-top justify-center gap-2' : 'sticky top-20 mb-6 px-4 pt-2 justify-between gap-2' 
+      }`}>
         <div className={`flex space-x-1 rounded-full border-2 border-slate-700 shadow-[0px_4px_0px_#000] transition-all duration-300 shrink-0 ${
           activeTab === 'events' ? 'bg-slate-950/80 backdrop-blur-md p-1.5' : 'bg-slate-900 p-1.5'
         }`}>
@@ -73,138 +205,130 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`tour-bazaar-events relative flex items-center justify-center rounded-full font-bold tracking-wide transition-all duration-300 ${
+              className={`tour-bazaar-events relative flex items-center justify-center rounded-full font-bold tracking-wide transition-all duration-300 font-sans ${
                 activeTab === 'events' ? 'p-3' : 'px-3 sm:px-5 py-2.5 text-xs sm:text-sm'
-              } ${
-                activeTab === tab ? 'text-slate-900' : 'text-slate-400 hover:text-slate-200'
-              }`}
+              } ${activeTab === tab ? 'text-slate-900' : 'text-slate-400 hover:text-slate-200'}`}
             >
-              {activeTab === tab && (
-                <div
-                  className={`absolute inset-0 rounded-full transition-all duration-300 ${
-                    tab === 'market' ? 'bg-lime-400' : 'bg-rose-500'
-                  }`}
-                />
-              )}
-              
+              {activeTab === tab && <div className={`absolute inset-0 rounded-full transition-all duration-300 ${tab === 'market' ? 'bg-lime-400' : 'bg-rose-500'}`} />}
               <span className="relative z-10 flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap">
-                {tab === 'market' 
-                  ? <ShoppingBag size={activeTab === 'events' ? 20 : 18} className="shrink-0" /> 
-                  : <Ticket size={activeTab === 'events' ? 20 : 18} className="shrink-0" />
-                }
-                {activeTab === 'market' && (
-                  <span>{tab === 'market' ? 'Marketplace' : 'Campus Events'}</span>
-                )}
+                {tab === 'market' ? <ShoppingBag size={activeTab === 'events' ? 20 : 18} className="shrink-0" /> : <Ticket size={activeTab === 'events' ? 20 : 18} className="shrink-0" />}
+                {activeTab === 'market' && <span>{tab === 'market' ? 'Marketplace' : 'Campus Events'}</span>}
               </span>
             </button>
           ))}
         </div>
 
-        {/* Map (No longer wrapped in a flex-1 spacer!) */}
-        {activeTab === 'market' && (
-          <button 
-            onClick={() => navigateTo('navigator')} 
-            className="tour-bazaar-map shrink-0 bg-lime-400 rounded-full border-2 border-slate-900 flex items-center justify-center text-slate-950 hover:bg-lime-300 transition-all shadow-[4px_4px_0px_#000] w-12 h-12 hover:-translate-y-1"
-          >
-            <MapPin size={24} strokeWidth={2.5} />
-          </button>
-        )}
+        <div className="flex gap-2 shrink-0">
+          {activeTab === 'events' && (
+            <button onClick={() => setShowEventModal(true)} className="bg-rose-500 text-white rounded-full border-2 border-slate-900 flex items-center justify-center shadow-[4px_4px_0px_#000] w-12 h-12 hover:-translate-y-1 transition-all">
+              <Plus size={24} strokeWidth={3} />
+            </button>
+          )}
+          {activeTab === 'market' && (
+            <button onClick={() => navigateTo('navigator')} className="bg-lime-400 rounded-full border-2 border-slate-900 flex items-center justify-center text-slate-950 shadow-[4px_4px_0px_#000] w-12 h-12 hover:-translate-y-1 transition-all">
+              <MapPin size={24} strokeWidth={2.5} />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* 🚀 MAIN CONTENT RENDERING */}
-      {/* Dev Note: Standard divs used here instead of motion.div to prevent Unmount Deadlock */}
-      {activeTab === 'market' ? (
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center mt-32 text-slate-500">
+          <Loader2 className="animate-spin mb-4 text-lime-400" size={48} />
+          <p className="font-bold tracking-widest uppercase text-sm font-sans">Loading Bazaar Data...</p>
+        </div>
+      ) : activeTab === 'market' ? (
         
-        // --- MARKETPLACE UI ---
         <div className="px-4 pb-24">
-          
-          {/* SEARCH & ADD ACTION ROW */}
-          <div className="flex gap-3 mb-5">
+          <div className="flex gap-3 mb-6 font-sans">
             <div className="relative flex-1">
               <input 
                 type="text" 
-                placeholder="Search the bazaar..." 
+                placeholder="Search items or use #tags..." 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-900 border-2 border-slate-800 text-slate-100 rounded-xl pl-11 pr-4 py-3 font-bold focus:outline-none focus:border-lime-400 focus:shadow-[4px_4px_0px_#10b981] transition-all placeholder:text-slate-500" 
               />
               <Search className="absolute left-3.5 top-3.5 text-slate-500" size={20} />
             </div>
-            <button className="tour-bazaar-market bg-lime-400 shrink-0 flex items-center justify-center text-slate-950 px-4 rounded-xl border-2 border-slate-900 shadow-[4px_4px_0px_#000] hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000] active:scale-95 transition-all font-black gap-2">
+            <button onClick={() => setShowSellModal(true)} className="bg-lime-400 shrink-0 flex items-center justify-center text-slate-950 px-4 rounded-xl border-2 border-slate-900 shadow-[4px_4px_0px_#000] hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000] active:scale-95 transition-all font-black gap-2">
               <Plus size={22} strokeWidth={3} />
               <span className="hidden sm:inline">Sell</span>
             </button>
           </div>
 
-          <div className="flex overflow-x-auto no-scrollbar gap-3 mb-6 pb-2">
-            {FILTERS.map(f => (
-              <button
-                key={f}
-                onClick={() => setActiveFilter(f)}
-                className={`whitespace-nowrap px-4 py-2 rounded-xl border-2 font-bold transition-all ${
-                  activeFilter === f 
-                  ? 'bg-slate-100 text-slate-950 border-slate-100 shadow-[2px_2px_0px_#10b981]' 
-                  : 'bg-slate-900 text-slate-400 border-slate-700 hover:border-slate-500'
-                }`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
+          {filteredItems.length > 0 ? (
+            <div className="columns-2 gap-4 space-y-4">
+              {filteredItems.map((item) => {
+                // 🚀 FIX: POLAROID / POST-IT STYLING
+                const isEven = item.id % 2 === 0;
+                const rotateClass = isEven ? 'rotate-2' : '-rotate-2';
 
-          <div className="columns-2 gap-4 space-y-4">
-            {filteredItems.map((item) => (
-              <div key={item.id} className="break-inside-avoid border-2 border-slate-800 bg-slate-900 rounded-2xl overflow-hidden shadow-[4px_4px_0px_#000] hover:border-slate-600 transition-colors">
-                <img src={item.image_url} alt={item.title} className="w-full h-auto object-cover border-b-2 border-slate-800" />
-                <div className="p-3">
-                  <h3 className="font-bold text-sm leading-tight text-slate-100 mb-2">{item.title}</h3>
-                  <div className="flex justify-between items-end mt-4">
-                    <span className="text-lime-400 font-black text-lg">₹{item.price}</span>
-                    <span className="text-xs text-slate-500 font-medium">{item.time_posted}</span>
-                  </div>
-                  <button 
-                    onClick={() => handleWhatsApp(item)}
-                    className="mt-3 w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-900 font-bold py-2 rounded-xl hover:bg-lime-400 transition-colors"
+                return (
+                  <div 
+                    key={item.id} 
+                    onClick={() => setSelectedMarketItem(item)}
+                    className={`relative break-inside-avoid bg-slate-100 p-2 pb-5 rounded-sm shadow-[6px_6px_0px_rgba(0,0,0,0.5)] hover:rotate-0 transition-transform group cursor-pointer ${rotateClass}`}
                   >
-                    <MessageCircle size={16} /> Chat
-                  </button>
-                </div>
-              </div>
-            ))}
-            {filteredItems.length === 0 && (
-              <div className="col-span-2 py-10 text-center text-slate-500 font-bold">
-                No items found for "{searchQuery}"
-              </div>
-            )}
-          </div>
+                    
+                    {/* The Tape */}
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-5 bg-white/50 backdrop-blur-sm border border-white/20 rotate-3 shadow-sm z-10" />
+
+                    {/* Floating Seller Actions */}
+                    {item.seller_id === currentUserId && (
+                      <div className="absolute top-4 right-4 flex flex-col gap-2 z-10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => { e.stopPropagation(); openEditModal(item); }} className="w-8 h-8 flex items-center justify-center bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-lime-400"><Edit2 size={14}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleMarkSold(item.id); }} className="w-8 h-8 flex items-center justify-center bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-yellow-400" title="Mark as Sold"><Check size={14}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }} className="w-8 h-8 flex items-center justify-center bg-slate-900/80 backdrop-blur border border-slate-600 rounded-full text-white hover:text-red-400"><Trash2 size={14}/></button>
+                      </div>
+                    )}
+
+                    <div className="w-full bg-slate-900 border border-slate-300 rounded-sm overflow-hidden aspect-square flex items-center justify-center mb-3">
+                      <img src={item.image_url} alt={item.title} className="w-full h-full object-cover" />
+                    </div>
+                    
+                    <div className="px-1 text-slate-900 flex flex-col h-full">
+                      <h3 className="font-black text-2xl leading-none mb-2 truncate">{item.title}</h3>
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {(Array.isArray(item.tags) ? item.tags : []).map((t: string) => (
+                          <span key={t} className="text-[10px] font-bold text-slate-100 bg-slate-800 px-1.5 py-0.5 rounded-sm uppercase tracking-wider font-sans">#{t}</span>
+                        ))}
+                      </div>
+                      
+                      <div className="mt-auto pt-2 flex justify-between items-end">
+                        <span className="text-blue-600 font-black text-3xl font-sans tracking-tighter">₹{item.price}</span>
+                        <span className="text-xs text-slate-500 font-bold font-sans">{formatTimeAgo(item.time_posted)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-16 flex flex-col items-center justify-center text-slate-500 font-bold text-center border-2 border-slate-800 border-dashed rounded-2xl font-sans bg-slate-900/50">
+              <Search size={48} className="mb-4 opacity-20" />
+              <p>No items found for <br/><span className="text-slate-300">"{searchQuery}"</span></p>
+            </div>
+          )}
         </div>
 
       ) : (
 
-        // --- REELS FULL SCREEN UI ---
-        <div className="px-2">
+        <div className="px-2 font-sans">
           <div className="w-full h-[calc(100dvh-11rem)] bg-black rounded-3xl overflow-y-scroll snap-y snap-mandatory no-scrollbar border-4 border-slate-800 shadow-[4px_4px_0px_#000] relative">
-            
-            {MOCK_EVENTS.map((event) => (
+            {events.length === 0 ? (
+               <div className="absolute inset-0 flex items-center justify-center text-slate-500 font-bold">No upcoming events scheduled.</div>
+            ) : events.map((event) => (
               <div key={event.id} className="relative w-full h-full snap-start bg-slate-900 overflow-hidden">
-                
-                {/* Background Poster Image */}
                 <img src={event.poster_url} className="absolute inset-0 w-full h-full object-cover opacity-80" />
-                
-                {/* Top Gradient */}
                 <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
-                
-                {/* Bottom Gradient Overlay */}
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent pointer-events-none" />
 
-                {/* Reel Content Overlay */}
                 <div className="absolute bottom-0 left-0 right-0 p-5 flex items-end justify-between">
-                  
-                  {/* Left Side: Event Info */}
                   <div className="flex-1 text-white pr-4 pb-2">
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-full border-2 border-rose-500 overflow-hidden">
-                        <img src={event.poster_url} className="w-full h-full object-cover" />
+                      <div className="w-8 h-8 rounded-full border-2 border-rose-500 overflow-hidden bg-slate-900 flex justify-center items-center font-black text-rose-500 text-xs">
+                        {(event.organizer || 'C').charAt(0).toUpperCase()}
                       </div>
                       <p className="font-bold text-rose-400 text-sm shadow-black drop-shadow-md">@{event.organizer}</p>
                     </div>
@@ -213,37 +337,29 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
                     <p className="text-xs text-slate-200 line-clamp-3 leading-relaxed drop-shadow-md">{event.desc}</p>
                   </div>
 
-                  {/* Right Side: Action Buttons */}
                   <div className="flex flex-col items-center gap-5 pb-4">
-                    
-                    {/* LIKE Button */}
                     <button onClick={() => toggleLike(event.id)} className="flex flex-col items-center gap-1 group">
                       <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-                        likedEvents.has(event.id) 
-                          ? 'bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.6)]' 
-                          : 'bg-slate-900/60 backdrop-blur-md border-2 border-slate-600 active:scale-95'
+                        likedEvents.has(event.id) ? 'bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.6)]' : 'bg-slate-900/60 backdrop-blur-md border-2 border-slate-600 active:scale-95'
                       }`}>
                         <Heart size={22} className={likedEvents.has(event.id) ? 'text-white fill-white' : 'text-white'} />
                       </div>
-                      <span className="text-[10px] font-bold text-slate-200">Like</span>
+                      <span className="text-[10px] font-bold text-slate-200">{event.likes || 0}</span>
                     </button>
 
-                    {/* REGISTER Button */}
-                    <button className="flex flex-col items-center gap-1 group active:scale-95 transition-transform">
+                    <button onClick={() => event.registration_link ? window.open(event.registration_link, '_blank') : alert("No link provided")} className="flex flex-col items-center gap-1 group active:scale-95 transition-transform">
                       <div className="w-12 h-12 bg-lime-400 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(163,230,53,0.4)]">
                         <Ticket size={22} className="text-slate-950" />
                       </div>
                       <span className="text-[10px] font-bold text-slate-200">Register</span>
                     </button>
 
-                    {/* INFO Button */}
-                    <button className="flex flex-col items-center gap-1 group active:scale-95">
+                    <button onClick={() => event.info_link ? window.open(event.info_link, '_blank') : alert("No extra info provided")} className="flex flex-col items-center gap-1 group active:scale-95">
                       <div className="w-12 h-12 bg-slate-900/60 backdrop-blur-md rounded-full border-2 border-slate-600 flex items-center justify-center transition-colors">
                         <Info size={22} className="text-white" />
                       </div>
                       <span className="text-[10px] font-bold text-slate-200">Info</span>
                     </button>
-
                   </div>
                 </div>
               </div>
@@ -251,6 +367,173 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
           </div>
         </div>
       )}
+
+      {/* DETAILED VIEW MODAL */}
+      <AnimatePresence>
+        {selectedMarketItem && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            className="fixed inset-0 z-[6000] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm font-sans" 
+            onClick={() => setSelectedMarketItem(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} 
+              animate={{ scale: 1, y: 0 }} 
+              onClick={(e) => e.stopPropagation()} 
+              className="bg-slate-100 border-2 border-slate-300 w-full max-w-lg rounded-sm overflow-hidden shadow-2xl relative max-h-[90vh] flex flex-col"
+            >
+              {/* Tape Effect on Details Modal too! */}
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-16 h-6 bg-white/50 backdrop-blur-sm border border-white/20 rotate-2 shadow-sm z-50 pointer-events-none" />
+
+              <button 
+                onClick={() => setSelectedMarketItem(null)} 
+                className="absolute top-4 right-4 w-10 h-10 bg-slate-900/60 rounded-full flex justify-center items-center text-white z-50 hover:bg-rose-500 transition-colors"
+              >
+                <X size={20}/>
+              </button>
+              
+              <div className="w-full h-64 sm:h-80 bg-slate-900 shrink-0 relative">
+                <img src={selectedMarketItem.image_url} alt={selectedMarketItem.title} className="w-full h-full object-contain" />
+              </div>
+              
+              <div className="p-6 overflow-y-auto hide-scrollbar flex-1 bg-slate-100 text-slate-900">
+                <div className="flex justify-between items-start mb-2 font-caveat">
+                  <h2 className="text-4xl font-black leading-none">{selectedMarketItem.title}</h2>
+                  <span className="text-4xl font-black text-blue-600 ml-4 shrink-0 font-sans tracking-tighter">₹{selectedMarketItem.price}</span>
+                </div>
+                
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {(Array.isArray(selectedMarketItem.tags) ? selectedMarketItem.tags : []).map((t: string) => (
+                    <span key={t} className="text-[10px] font-bold text-slate-100 bg-slate-800 px-2 py-1 rounded uppercase tracking-wider">#{t}</span>
+                  ))}
+                </div>
+                
+                <div className="bg-slate-200 border border-slate-300 rounded-sm p-4 mb-6 shadow-inner font-caveat">
+                  <h3 className="text-xl font-bold text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-2"><Info size={16}/> Description</h3>
+                  <p className="text-slate-800 text-2xl leading-tight whitespace-pre-wrap">{selectedMarketItem.description || "No description provided."}</p>
+                </div>
+
+                <div className="flex items-center justify-between text-xs font-bold text-slate-500 mb-6 font-sans">
+                  <span>Posted {formatTimeAgo(selectedMarketItem.time_posted)}</span>
+                </div>
+
+                {selectedMarketItem.seller_id === currentUserId ? (
+                  <div className="flex gap-2 font-sans">
+                    <button 
+                      onClick={() => { setSelectedMarketItem(null); openEditModal(selectedMarketItem); }} 
+                      className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-md border border-slate-700 hover:bg-slate-700 transition-colors"
+                    >
+                      Edit Post
+                    </button>
+                    <button 
+                      onClick={() => handleMarkSold(selectedMarketItem.id)} 
+                      className="flex-1 bg-yellow-400 text-slate-900 font-bold py-3 rounded-md shadow-[2px_2px_0px_#000] border-2 border-slate-900 hover:translate-y-px hover:shadow-none transition-all"
+                    >
+                      Mark as Sold
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => handleWhatsApp(selectedMarketItem)} 
+                    className="w-full flex items-center justify-center gap-2 bg-lime-400 text-slate-950 font-black text-xl py-4 rounded-sm shadow-[4px_4px_0px_#000] border-2 border-slate-900 hover:-translate-y-1 hover:shadow-[6px_6px_0px_#000] active:scale-95 transition-all font-sans"
+                  >
+                    <MessageCircle size={22} /> CHAT WITH SELLER
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showSellModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[7000] bg-black/80 flex items-center justify-center p-4 font-sans">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-slate-900 border-2 border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl relative">
+              <button onClick={closeSellModal} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={24}/></button>
+              <h2 className="text-2xl font-black text-lime-400 uppercase tracking-widest mb-6">
+                {selectedItemId ? 'Edit Item' : 'List an Item'}
+              </h2>
+              
+              <div className="space-y-4">
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Item Name</label>
+                    <input type="text" value={sellForm.title} onChange={e => setSellForm({...sellForm, title: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-bold focus:border-lime-400 focus:outline-none" placeholder="e.g. Drafter" />
+                  </div>
+                  <div className="w-[30%]">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Price (₹)</label>
+                    <input type="number" value={sellForm.price} onChange={e => setSellForm({...sellForm, price: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-lime-400 font-black focus:border-lime-400 focus:outline-none" placeholder="350" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase">Description</label>
+                  <textarea value={sellForm.desc} onChange={e => setSellForm({...sellForm, desc: e.target.value})} className="w-full h-20 bg-slate-950 border border-slate-700 rounded-lg p-2 text-white text-sm focus:border-lime-400 focus:outline-none resize-none" placeholder="Condition, pickup location..."></textarea>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase">Tags (Comma Separated)</label>
+                  <input type="text" value={sellForm.tags} onChange={e => setSellForm({...sellForm, tags: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-blue-400 font-bold focus:border-lime-400 focus:outline-none" placeholder="Academics, Books, Electronics" />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Item Photo</label>
+                  <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={(e) => handleImageUpload(e, 'sell')} />
+                  <div onClick={() => fileInputRef.current?.click()} className={`w-full h-32 border-2 border-dashed rounded-xl flex items-center justify-center cursor-pointer transition-colors ${sellForm.image ? 'border-lime-500 p-1' : 'border-slate-700 bg-slate-950 hover:bg-slate-800'}`}>
+                    {sellForm.image ? <img src={sellForm.image} className="w-full h-full object-cover rounded-lg" /> : <div className="flex flex-col items-center text-slate-500"><ImageIcon size={24} className="mb-2"/> <span className="text-xs font-bold uppercase">Upload Photo</span></div>}
+                  </div>
+                </div>
+
+                <button onClick={handlePostSell} disabled={isSubmitting} className="w-full mt-4 py-3 bg-lime-400 text-slate-900 font-black text-xl tracking-widest uppercase rounded-lg shadow-[4px_4px_0px_#000] hover:translate-y-px hover:shadow-[2px_2px_0px_#000] transition-all disabled:opacity-50">
+                  {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : (selectedItemId ? 'Update Item' : 'Post to Bazaar')}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showEventModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[5000] bg-black/80 flex items-center justify-center p-4 font-sans">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-slate-900 border-2 border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto hide-scrollbar">
+              <button onClick={() => setShowEventModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={24}/></button>
+              <h2 className="text-2xl font-black text-rose-500 uppercase tracking-widest mb-6">Host an Event</h2>
+              
+              <div className="space-y-4">
+                <div><label className="text-xs font-bold text-slate-500 uppercase">Event Title</label><input type="text" value={eventForm.title} onChange={e => setEventForm({...eventForm, title: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-bold focus:border-rose-500 focus:outline-none" /></div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase">Venue</label><input type="text" value={eventForm.venue} onChange={e => setEventForm({...eventForm, venue: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-bold focus:border-rose-500 focus:outline-none" /></div>
+                
+                <div className="flex gap-4">
+                  <div className="flex-1"><label className="text-xs font-bold text-slate-500 uppercase">Start Time</label><input type="datetime-local" value={eventForm.start} onChange={e => setEventForm({...eventForm, start: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white text-xs font-bold focus:border-rose-500 focus:outline-none" /></div>
+                  <div className="flex-1"><label className="text-xs font-bold text-slate-500 uppercase">End Time</label><input type="datetime-local" value={eventForm.end} onChange={e => setEventForm({...eventForm, end: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white text-xs font-bold focus:border-rose-500 focus:outline-none" /></div>
+                </div>
+
+                <div><label className="text-xs font-bold text-slate-500 uppercase">Description</label><textarea value={eventForm.desc} onChange={e => setEventForm({...eventForm, desc: e.target.value})} className="w-full h-16 bg-slate-950 border border-slate-700 rounded-lg p-2 text-white text-sm focus:border-rose-500 focus:outline-none resize-none"></textarea></div>
+                
+                <div><label className="text-xs font-bold text-slate-500 uppercase">Registration Link (Optional)</label><input type="url" value={eventForm.regLink} onChange={e => setEventForm({...eventForm, regLink: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-blue-400 font-bold focus:border-rose-500 focus:outline-none text-sm" placeholder="https://forms.gle/..." /></div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase">More Info Link (Optional)</label><input type="url" value={eventForm.infoLink} onChange={e => setEventForm({...eventForm, infoLink: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-blue-400 font-bold focus:border-rose-500 focus:outline-none text-sm" placeholder="https://instagram.com/..." /></div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Event Poster (9:16 Portrait Ideal)</label>
+                  <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={(e) => handleImageUpload(e, 'event')} />
+                  <div onClick={() => fileInputRef.current?.click()} className={`w-full h-40 border-2 border-dashed rounded-xl flex items-center justify-center cursor-pointer transition-colors ${eventForm.image ? 'border-rose-500 p-1' : 'border-slate-700 bg-slate-950 hover:bg-slate-800'}`}>
+                    {eventForm.image ? <img src={eventForm.image} className="w-full h-full object-cover rounded-lg" /> : <div className="flex flex-col items-center text-slate-500"><ImageIcon size={24} className="mb-2"/> <span className="text-xs font-bold uppercase">Upload Poster</span></div>}
+                  </div>
+                </div>
+
+                <button onClick={handlePostEvent} disabled={isSubmitting} className="w-full mt-4 py-3 bg-rose-500 text-white font-black text-xl tracking-widest uppercase rounded-lg shadow-[4px_4px_0px_#000] hover:translate-y-px hover:shadow-[2px_2px_0px_#000] transition-all disabled:opacity-50">
+                  {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : 'Launch Event'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
