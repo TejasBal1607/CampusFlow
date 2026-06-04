@@ -12,6 +12,7 @@ from app.routers import admin
 from app.routers import locations
 from app.routers import navigation
 from app.routers import bazaar
+from app.routers import acad
 
 from fastapi.middleware.cors import CORSMiddleware
 # This generates the tables in Neon!
@@ -37,6 +38,7 @@ app.include_router(admin.router)
 app.include_router(locations.router)
 app.include_router(navigation.router)
 app.include_router(bazaar.router)
+app.include_router(acad.router)
 
 
 

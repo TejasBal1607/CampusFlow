@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, MapPin, Camera, Radio, FolderOpen, X, Search, Plus, CheckCircle2, XCircle, Slash, ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, Loader2, AlertTriangle, CalendarDays, Target, UploadCloud, Flag, Edit2, CheckSquare } from 'lucide-react';
+import AcadVault from './AcadVault';
 
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
@@ -899,108 +900,12 @@ export default function Daily() {
 
       <AnimatePresence>
         {showArchives && (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowArchives(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60]" />
-            <motion.div 
-              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t-2 border-slate-700 rounded-t-3xl z-[70] flex flex-col max-h-[85vh] h-[85vh]"
-            >
-              <div className="p-5 border-b-2 border-slate-800 flex justify-between items-center shrink-0">
-                <h2 className="text-2xl font-black tracking-widest uppercase flex items-center gap-2">
-                  <FolderOpen className="text-blue-500" /> Acad Vault
-                </h2>
-                <button onClick={() => setShowArchives(false)} className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white"><X size={20} /></button>
-              </div>
-
-              <div className="p-4 overflow-y-auto flex-1 hide-scrollbar bg-slate-950/50">
-                <div className="mb-6 space-y-2">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-3 text-slate-500" size={20} />
-                    <input type="text" placeholder="Search files, tags, codes..." className="w-full bg-slate-900 border-2 border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-slate-200 font-sans font-bold focus:outline-none focus:border-blue-500 transition-colors" />
-                  </div>
-                </div>
-
-                <div className="bg-slate-900 border-2 border-slate-800 rounded-xl p-3 font-sans space-y-1">
-                  
-                  <div className="mb-2">
-                    <div onClick={() => toggleFolder('yr1')} className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer py-2 px-2 hover:bg-slate-800/50 rounded-md transition-colors">
-                      {expandedFolders['yr1'] ? <ChevronDown size={18} className="text-blue-400" /> : <ChevronRight size={18} className="text-slate-500" />}
-                      <FolderOpen size={18} className="text-blue-400" />
-                      <span className="font-bold">Year 1 (Common)</span>
-                    </div>
-                    {expandedFolders['yr1'] && (
-                      <div className="pl-9 border-l border-slate-700 ml-4 py-1 space-y-2">
-                        <div className="flex items-center gap-2 text-slate-400 hover:text-blue-300 cursor-pointer text-sm">
-                          <FolderOpen size={14} className="text-slate-500"/> Mathematics - I (UMA010)
-                        </div>
-                        <div className="flex items-center gap-2 text-slate-400 hover:text-blue-300 cursor-pointer text-sm">
-                          <FolderOpen size={14} className="text-slate-500"/> Physics (UPH004)
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <div onClick={() => toggleFolder('streams')} className="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer py-2 px-2 hover:bg-slate-800/50 rounded-md transition-colors">
-                      {expandedFolders['streams'] ? <ChevronDown size={18} className="text-purple-400" /> : <ChevronRight size={18} className="text-slate-500" />}
-                      <FolderOpen size={18} className="text-purple-400" />
-                      <span className="font-bold">Streams</span>
-                    </div>
-                    {expandedFolders['streams'] && (
-                      <div className="pl-6 border-l border-slate-700 ml-4 py-1 space-y-1">
-                        <div>
-                           <div onClick={() => toggleFolder('coe')} className="flex items-center gap-2 text-slate-400 hover:text-white cursor-pointer py-1.5 px-2 hover:bg-slate-800/50 rounded-md text-sm mt-1">
-                            {expandedFolders['coe'] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            <FolderOpen size={16} className="text-slate-500" /> Computer Engineering (COE)
-                           </div>
-                           {expandedFolders['coe'] && (
-                             <div className="pl-6 border-l border-slate-700/50 ml-3 py-1 space-y-2">
-                               <div className="flex items-center gap-2 text-slate-400 hover:text-white cursor-pointer py-1 px-2 hover:bg-slate-800/50 rounded-md text-sm">
-                                 <FileText size={14} className="text-red-400"/> COE_Stream_Scheme.pdf
-                               </div>
-                               <div>
-                                  <div onClick={() => toggleFolder('yr3')} className="flex items-center gap-2 text-slate-500 hover:text-slate-300 cursor-pointer text-sm py-1">
-                                    {expandedFolders['yr3'] ? <ChevronDown size={12}/> : <ChevronRight size={12}/>} <FolderOpen size={14}/> Year 3
-                                  </div>
-                                  {expandedFolders['yr3'] && (
-                                    <div className="pl-5 border-l border-slate-700/50 ml-2 py-1 space-y-2">
-                                      <div className="flex items-center gap-2 text-slate-500 hover:text-slate-300 cursor-pointer text-sm py-1"><FolderOpen size={14}/> Data Structures</div>
-                                      <div className="pl-6 ml-2 space-y-2">
-                                        <div className="flex flex-col text-slate-400 bg-slate-950/50 p-2 rounded border border-slate-800">
-                                          <div className="flex items-center gap-2 text-xs font-bold mb-1.5 hover:text-white cursor-pointer"><FileText size={12} className="text-blue-400"/> Linked_Lists_PYQ.pdf</div>
-                                          <div className="flex gap-1 flex-wrap">
-                                            <span className="text-[8px] bg-slate-800 px-1.5 rounded text-slate-500">COE</span>
-                                            <span className="text-[8px] bg-slate-800 px-1.5 rounded text-slate-500">Year 3</span>
-                                            <span className="text-[8px] bg-slate-800 px-1.5 rounded text-slate-500">DSA</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-                               </div>
-                             </div>
-                           )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <button 
-                  onClick={() => {
-                    if (isGuest) alert("Only verified users can upload to the Acad Vault.");
-                    else alert("Link upload form opening..."); 
-                  }}
-                  disabled={isGuest}
-                  className={`w-full mt-6 py-4 border-2 border-dashed rounded-xl flex items-center justify-center gap-2 transition-all font-black uppercase tracking-widest shadow-inner
-                  ${isGuest ? 'bg-slate-900 border-slate-800 text-slate-600 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 hover:border-blue-500/50'}`}
-                >
-                  <Plus size={20} className={isGuest ? 'text-slate-600' : 'text-blue-500'} /> 
-                  {isGuest ? 'Upload Restricted' : 'Add Resource Link'}
-                </button>
-              </div>
-            </motion.div>
-          </>
+          <AcadVault
+            onClose={() => setShowArchives(false)}
+            isGuest={isGuest}
+            userStream={userData.stream}
+            currentUserId={currentUserId}
+          />
         )}
       </AnimatePresence>
 
