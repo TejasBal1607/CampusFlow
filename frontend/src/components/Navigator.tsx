@@ -5,6 +5,7 @@ import axios from 'axios';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import campusMapImage from '/thapar-map.jpg'; 
+import { CAMPUS_EDGES, findShortestPath, findNearestNodeId } from '../lib/routing';
 
 const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000';
 
@@ -70,6 +71,20 @@ const getCategoryColor = (category: string) => {
   }
 };
 
+// 🚀 NEW: Parses text to highlight #hashtags in neon green
+const renderDescription = (text: string) => {
+  if (!text) return "No description provided.";
+  // Split by hashtag, keeping the hashtag in the array
+  const parts = text.split(/(#[a-zA-Z0-9_]+)/g);
+  return parts.map((part, i) => 
+    part.startsWith('#') ? (
+      <span key={i} className="text-lime-400 font-bold bg-lime-400/10 px-1 rounded">{part}</span>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+};
+
 export default function Navigator() {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<L.Map | null>(null);
@@ -78,7 +93,6 @@ export default function Navigator() {
   const userMarkerRef = useRef<L.Marker | null>(null);
   const prevSearchRef = useRef("");
   
-  // 🚀 NEW: Load locations from DB!
   const [dbLocations, setDbLocations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -90,7 +104,6 @@ export default function Navigator() {
   const [zoomThreshold, setZoomThreshold] = useState(-1);
   const coverZoomRef = useRef(-2);
 
-  // 1️⃣ FETCH DATA
   useEffect(() => {
     const fetchLocations = async () => {
       try {
@@ -105,7 +118,6 @@ export default function Navigator() {
     fetchLocations();
   }, []);
 
-  // 2️⃣ INITIALIZE MAP
   useEffect(() => {
     if (isLoading || !mapRef.current || leafletMap.current) return;
 
@@ -142,7 +154,6 @@ export default function Navigator() {
       setCurrentZoom(leafletMap.current!.getZoom());
     });
 
-    // 🚀 NEW: Click-to-Tag now instantly saves to the DB!
     leafletMap.current.on('click', async (e) => {
       const y = Math.round(e.latlng.lat);
       const x = Math.round(e.latlng.lng);
@@ -162,7 +173,6 @@ export default function Navigator() {
           L.marker([y, x], { icon: customIcon }).addTo(markerLayer.current!)
             .bindPopup(`<b>${locName}</b><br/>Saved to DB!`).openPopup();
             
-          // Silently refresh the pins in the background
           const res = await axios.get(`${API_HOST}/locations/`);
           setDbLocations(res.data);
           
@@ -191,28 +201,46 @@ export default function Navigator() {
 
     if (routingLayerRef.current) {
        routingLayerRef.current.clearLayers();
-       // 🚀 No more math scaling needed! The DB coordinates are already perfect.
-       const finalY = loc.coords[0];
-       const finalX = loc.coords[1];
        
+       const targetY = loc.coords[0];
+       const targetX = loc.coords[1];
        const userPos = userMarkerRef.current.getLatLng();
-       const targetPos = L.latLng(finalY, finalX);
+
+       // 🚀 1. SNAP USER TO NEAREST GRAPH NODE
+       const startNodeId = findNearestNodeId(userPos.lat, userPos.lng, dbLocations);
        
-       const line = L.polyline([userPos, targetPos], { 
+       // 🚀 2. CALCULATE THE PATH
+       const routeCoords = findShortestPath(startNodeId, loc.id, dbLocations, CAMPUS_EDGES);
+
+       if (!routeCoords) {
+           alert("No valid route found! Are roads blocked?");
+           return;
+       }
+
+       // 🚀 3. PREPEND THE USER'S ACTUAL LOCATION TO THE ROUTE
+       // So the line starts exactly at their stickman and draws to the first waypoint
+       const fullPolylineCoords = [
+           [userPos.lat, userPos.lng], 
+           ...routeCoords
+       ] as L.LatLngExpression[];
+       
+       // 🚀 4. DRAW THE GLOWING PATH
+       const line = L.polyline(fullPolylineCoords, { 
           color: '#3b82f6', 
-          dashArray: '12, 12', 
-          weight: 5,
+          dashArray: '10, 10', 
+          weight: 6,
           lineCap: 'round',
-          opacity: 0.8
+          opacity: 0.9,
+          className: 'animate-pulse' // Gives it a cool glowing effect
        });
        routingLayerRef.current.addLayer(line);
        
-       const centerPos = L.latLngBounds(userPos, targetPos).getCenter();
-       leafletMap.current?.flyTo(centerPos, leafletMap.current.getZoom(), { animate: true, duration: 1.0 });
+       // Zoom camera to fit the whole route nicely
+       leafletMap.current?.fitBounds(line.getBounds(), { padding: [100, 100], animate: true, duration: 1.0 });
     }
   };
 
-  // 3️⃣ DYNAMIC PINS
+  // 3️⃣ THE SMART SEARCH ENGINE
   useEffect(() => {
     if (isLoading || !markerLayer.current || !leafletMap.current) return;
     markerLayer.current.clearLayers();
@@ -220,18 +248,41 @@ export default function Navigator() {
     const isSearchEmpty = searchQuery.trim() === "";
     const isZoomedIn = currentZoom >= zoomThreshold;
     
-    const filtered = dbLocations.filter(loc => 
-      isSearchEmpty || 
-      loc.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      loc.category.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filtered = dbLocations.filter(loc => {
+      if (isSearchEmpty) return true;
+      const search = searchQuery.toLowerCase();
+
+      // 🚀 THE HASHTAG OVERRIDE
+      if (search.startsWith('#')) {
+        const tagQuery = search.replace('#', '').trim();
+        if (!tagQuery) return true; // If they just typed "#", show all
+
+        // Safely check category, tags (if your new backend passes them), and description
+        const safeCategory = Array.isArray(loc.category) ? loc.category : [loc.category || ""];
+        const safeTags = Array.isArray(loc.tags) ? loc.tags : [loc.tags || ""];
+        const safeDesc = (loc.desc || loc.description || "").toLowerCase();
+
+        const inCategory = safeCategory.some((c: string) => c.toLowerCase().includes(tagQuery));
+        const inTags = safeTags.some((t: string) => t.toLowerCase().includes(tagQuery));
+        const inDesc = safeDesc.includes(`#${tagQuery}`);
+
+        return inCategory || inTags || inDesc;
+      }
+
+      // 🚀 STANDARD GLOBAL SEARCH (Matches your Python `or_` logic)
+      const safeCategory = Array.isArray(loc.category) ? loc.category.join(' ') : (loc.category || "");
+      const safeTags = Array.isArray(loc.tags) ? loc.tags.join(' ') : (loc.tags || "");
+      
+      return (loc.name || "").toLowerCase().includes(search) || 
+             (loc.desc || loc.description || "").toLowerCase().includes(search) ||
+             safeCategory.toLowerCase().includes(search) ||
+             safeTags.toLowerCase().includes(search);
+    });
 
     const boundsArr: L.LatLngTuple[] = [];
 
     filtered.forEach(loc => {
-      // 🚀 The DB returns the final coords directly!
       const finalCoords: L.LatLngTuple = [loc.coords[0], loc.coords[1]];
-      
       if (isSearchEmpty && !isZoomedIn) return;
 
       boundsArr.push(finalCoords);
@@ -242,7 +293,7 @@ export default function Navigator() {
           radius: 5,
           color: '#0f172a',
           weight: 2,
-          fillColor: getCategoryColor(loc.category),
+          fillColor: getCategoryColor(Array.isArray(loc.category) ? loc.category[0] : loc.category),
           fillOpacity: 1
         });
       } else {
@@ -256,7 +307,7 @@ export default function Navigator() {
       popup.style.cssText = "font-family: ui-sans-serif, system-ui, sans-serif; min-width: 150px; padding: 2px;";
       popup.innerHTML = `
         <h3 style="font-weight: 900; font-size: 15px; margin: 0 0 2px 0; color: #0f172a;">${loc.name}</h3>
-        ${showRating ? `<p style="font-size: 12px; color: #475569; margin: 0 0 8px 0;">⭐ ${loc.rating}</p>` : `<div style="height: 8px;"></div>`}
+        ${showRating ? `<p style="font-size: 12px; color: #475569; margin: 0 0 8px 0;">⭐ ${loc.rating || '5.0'}</p>` : `<div style="height: 8px;"></div>`}
         <div style="display: flex; gap: 6px;">
           ${showDetailsBtn ? `<button id="btn-details-${loc.id}" style="flex: 1; background: #0f172a; color: #a3e635; border: none; padding: 6px; border-radius: 6px; font-weight: bold; cursor: pointer;">Details</button>` : ''}
           <button id="btn-nav-${loc.id}" style="flex: 1; background: #3b82f6; color: white; border: none; padding: 6px; border-radius: 6px; font-weight: bold; cursor: pointer;">Navigate</button>
@@ -295,7 +346,6 @@ export default function Navigator() {
     setIsLocating(true);
 
     const fallbackToMainGate = () => {
-      // We still use scaling here because the Main Gate fallback is a hardcoded GPS default
       const fallbackY = 76 * (IMAGE_HEIGHT / 3000);
       const fallbackX = 3893 * (IMAGE_WIDTH / 4000);
       
@@ -366,7 +416,7 @@ export default function Navigator() {
         <div className="relative flex-1 shadow-[4px_4px_0px_#000] rounded-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input 
-            type="text" placeholder="Search Campus..." 
+            type="text" placeholder="Search Map or #tags..." 
             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-900 border-2 border-slate-700 text-white rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-lime-400 font-bold"
           />
@@ -394,7 +444,7 @@ export default function Navigator() {
             className="absolute inset-x-0 bottom-0 z-[2000] bg-slate-900 rounded-t-3xl border-t-2 border-slate-700 shadow-[0px_-10px_40px_rgba(0,0,0,0.8)] h-[85%] overflow-y-auto flex flex-col"
           >
             <div className="relative w-full h-56 shrink-0 border-b-2 border-slate-800">
-              <img src={selectedLocation.image_url} className="w-full h-full object-cover" />
+              <img src={selectedLocation.image_url || "https://via.placeholder.com/400"} className="w-full h-full object-cover" />
               <button onClick={() => setSelectedLocation(null)} className="absolute top-4 right-4 w-10 h-10 bg-slate-950/60 rounded-full flex justify-center items-center text-white"><X size={20}/></button>
             </div>
             
@@ -404,21 +454,27 @@ export default function Navigator() {
               {selectedLocation.category !== "Waypoint" && (
                 <div className="flex items-center gap-1 mt-2 text-lime-400 font-bold">
                   <Star size={16} fill="currentColor" />
-                  <span>{selectedLocation.rating} / 5.0</span>
+                  <span>{selectedLocation.rating || '5.0'} / 5.0</span>
+                  
+                  {/* Highlight JSON Tags if they exist */}
+                  {(Array.isArray(selectedLocation.tags) ? selectedLocation.tags : []).map((t: string) => (
+                    <span key={t} className="ml-2 text-[10px] font-bold text-slate-900 bg-lime-400 px-2 py-0.5 rounded uppercase">#{t}</span>
+                  ))}
                 </div>
               )}
               
               <div className="flex items-center gap-2 mt-4 text-slate-400 font-medium">
                 <Clock size={16} />
-                <span>{selectedLocation.open_time}</span>
+                <span>{selectedLocation.open_time || '24/7'}</span>
               </div>
               
               <div className="mt-6 border-t-2 border-slate-800 pt-6">
                 <h3 className="text-lg font-bold text-slate-300 mb-2 flex items-center gap-2">
                   <Info size={18} className="text-lime-400" /> Description
                 </h3>
-                <p className="text-slate-400 leading-relaxed">
-                  {selectedLocation.desc}
+                {/* 🚀 HASHTAG HIGHLIGHTER */}
+                <p className="text-slate-400 leading-relaxed whitespace-pre-wrap">
+                  {renderDescription(selectedLocation.desc || selectedLocation.description)}
                 </p>
               </div>
 

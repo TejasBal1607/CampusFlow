@@ -129,7 +129,6 @@ def get_events(db: Session = Depends(get_db)):
         org_name = org.name if (org and org.name) else "CampusFLOW"
         date_str = e.start_time.strftime("%b %d, %I:%M %p") if e.start_time else "TBA"
 
-        # 🚀 Safely parse liked_by_users array
         liked_by = e.liked_by_users
         if isinstance(liked_by, str):
             try: liked_by = json.loads(liked_by)
@@ -171,7 +170,6 @@ def create_event(payload: EventCreate, db: Session = Depends(get_db)):
     db.refresh(new_event)
     return {"status": "success", "id": new_event.id}
 
-# 🚀 THE LIKE FIX: Toggle user_id in the array!
 @router.put("/events/{event_id}/like")
 def toggle_like(event_id: int, user_id: int, db: Session = Depends(get_db)):
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
