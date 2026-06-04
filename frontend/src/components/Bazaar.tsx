@@ -20,7 +20,10 @@ const formatTimeAgo = (isoString: string) => {
 const isVideo = (url: string) => {
   if (!url) return false;
   if (url.startsWith('data:video/')) return true;
-  return url.match(/\.(mp4|webm|mov|ogg)$/i) !== null;
+  
+  // Strip off the query parameters (?...) before checking the file extension
+  const cleanUrl = url.split('?')[0]; 
+  return cleanUrl.match(/\.(mp4|webm|mov|ogg)$/i) !== null;
 };
 
 // 🚀 THE DEDICATED REEL COMPONENT
@@ -202,8 +205,7 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
   const imageContainerRef = useRef<HTMLDivElement>(null); 
 
   const [sellForm, setSellForm] = useState({ title: '', price: '', desc: '', tags: '', image: '' });
-  const [eventForm, setEventForm] = useState({ title: '', venue: '', start: '', end: '', desc: '', regLink: '', infoLink: '', image: '' });
-
+  const [eventForm, setEventForm] = useState({ title: '', venue: '', start: '', end: '', desc: '', regLink: '', infoLink: '', image: '', organizer: '' });
   // SCROLL LOCK 
   useEffect(() => {
     if (activeTab === 'events') {
@@ -358,13 +360,42 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
         user_id: currentUserId, title: eventForm.title, venue: eventForm.venue,
         start_time: new Date(eventForm.start).toISOString(), end_time: new Date(eventForm.end).toISOString(),
         description: eventForm.desc, poster_url: eventForm.image,
-        registration_link: eventForm.regLink || null, info_link: eventForm.infoLink || null
+        registration_link: eventForm.regLink || null, info_link: eventForm.infoLink || null,
+        organizer: eventForm.organizer || "Student" // <-- Added line
       });
       setShowEventModal(false);
-      setEventForm({ title: '', venue: '', start: '', end: '', desc: '', regLink: '', infoLink: '', image: '' });
+      setEventForm({ title: '', venue: '', start: '', end: '', desc: '', regLink: '', infoLink: '', image: '', organizer: '' });
       fetchBazaarData();
     } catch (e) { alert("Failed to post event."); } 
     finally { setIsSubmitting(false); }
+  };
+
+  const [instaLink, setInstaLink] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleInstaSync = async () => {
+    if (!instaLink) return alert("Paste an Instagram link first!");
+    setIsSyncing(true);
+    try {
+      const res = await axios.post(`${API_HOST}/bazaar/events/sync-instagram`, { url: instaLink });
+      
+      // Magically auto-fill the form with the API response!
+      setEventForm(prev => ({
+        ...prev,
+        title: res.data.title || prev.title,
+        desc: res.data.desc || prev.desc,
+        image: res.data.poster_url || prev.image,
+        venue: res.data.venue || prev.venue,
+        organizer: res.data.organizer || prev.organizer, // <-- Added line
+        infoLink: instaLink
+      }));
+      setInstaLink('');
+      
+    } catch (e) {
+      alert("Failed to sync from Instagram.");
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   return (
@@ -646,10 +677,33 @@ export default function Bazaar({ navigateTo }: { navigateTo: (tab: string) => vo
               <button onClick={() => setShowEventModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={24}/></button>
               <h2 className="text-2xl font-black text-rose-500 uppercase tracking-widest mb-6">Host an Event</h2>
               
+              {/* 🚀 THE NEW INSTAGRAM SYNC UI */}
+              <div className="mb-6 p-4 bg-gradient-to-br from-fuchsia-600/20 to-orange-600/20 border border-rose-500/30 rounded-xl">
+                <div className="flex gap-2">
+                  <input 
+                    type="url" 
+                    value={instaLink} 
+                    onChange={e => setInstaLink(e.target.value)} 
+                    className="w-full bg-slate-900 border border-rose-500/50 rounded-lg p-2 text-white text-sm font-bold focus:border-rose-400 focus:outline-none placeholder:text-rose-500/40" 
+                    placeholder="Paste Reel/Post Link..." 
+                  />
+                  <button 
+                    onClick={handleInstaSync} 
+                    disabled={isSyncing}
+                    className="bg-rose-500 text-white px-4 rounded-lg font-black tracking-widest uppercase shadow-[2px_2px_0px_#000] hover:translate-y-px hover:shadow-none transition-all disabled:opacity-50 flex items-center justify-center shrink-0"
+                  >
+                    {isSyncing ? <Loader2 className="animate-spin" size={18} /> : 'Sync'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2">Paste an Instagram link to auto-fill the video and description below.</p>
+              </div>
+              {/* ------------------------------- */}
+
               <div className="space-y-4">
                 <div><label className="text-xs font-bold text-slate-500 uppercase">Event Title</label><input type="text" value={eventForm.title} onChange={e => setEventForm({...eventForm, title: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-bold focus:border-rose-500 focus:outline-none" /></div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase">Organizer (Society Handle)</label><input type="text" value={eventForm.organizer} onChange={e => setEventForm({...eventForm, organizer: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-rose-400 font-bold focus:border-rose-500 focus:outline-none" placeholder="e.g. frosh_thapar" /></div>
                 <div><label className="text-xs font-bold text-slate-500 uppercase">Venue</label><input type="text" value={eventForm.venue} onChange={e => setEventForm({...eventForm, venue: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white font-bold focus:border-rose-500 focus:outline-none" /></div>
-                
+
                 <div className="flex gap-4">
                   <div className="flex-1"><label className="text-xs font-bold text-slate-500 uppercase">Start Time</label><input type="datetime-local" value={eventForm.start} onChange={e => setEventForm({...eventForm, start: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white text-xs font-bold focus:border-rose-500 focus:outline-none" /></div>
                   <div className="flex-1"><label className="text-xs font-bold text-slate-500 uppercase">End Time</label><input type="datetime-local" value={eventForm.end} onChange={e => setEventForm({...eventForm, end: e.target.value})} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-white text-xs font-bold focus:border-rose-500 focus:outline-none" /></div>

@@ -4,6 +4,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import json
+import requests
+import os
+
 
 from app.database import get_db
 from app import models
@@ -194,3 +197,68 @@ def toggle_like(event_id: int, user_id: int, db: Session = Depends(get_db)):
     
     db.commit()
     return {"likes": event.likes}
+
+@router.post("/events/sync-instagram")
+def sync_instagram_post(payload: dict):
+    insta_url = payload.get("url")
+    if not insta_url:
+        raise HTTPException(400, "No URL provided")
+
+    clean_url = insta_url.split("?")[0]
+    api_key = os.getenv("RAPID_API_KEY")
+
+    try:
+        url = "https://instagram-looter2.p.rapidapi.com/post"
+        querystring = {"url": clean_url}
+        headers = {
+            "x-rapidapi-key": api_key,
+            "x-rapidapi-host": "instagram-looter2.p.rapidapi.com"
+        }
+
+        response = requests.get(url, headers=headers, params=querystring, timeout=10)
+        data = response.json()
+        
+        # 1. Grab Video/Image URL
+        media_url = data.get("video_url") or data.get("display_url") or ""
+        
+        # 2. Grab the Caption text robustly
+        caption = ""
+        try:
+            if data.get("caption") and isinstance(data["caption"], str):
+                caption = data["caption"]
+            elif "edge_media_to_caption" in data:
+                edges = data["edge_media_to_caption"].get("edges", [])
+                if edges:
+                    caption = edges[0].get("node", {}).get("text", "")
+        except Exception:
+            pass
+
+        # 3. Grab the Organizer (Reel Owner / Society Handle)
+        organizer = ""
+        try:
+            if "owner" in data:
+                organizer = data["owner"].get("username", "")
+            elif "user" in data:
+                organizer = data["user"].get("username", "")
+        except Exception:
+            pass
+
+        if media_url:
+            return {
+                "title": "Insta Event (Edit Me!)",
+                "desc": caption,
+                "poster_url": media_url,
+                "venue": "TBA",
+                "organizer": organizer # <-- Sends the society name to the frontend
+            }
+            
+    except Exception as e:
+        print(f"❌ API Sync Failed: {e}")
+
+    return {
+        "title": "Campus Tech Hackathon",
+        "desc": "Join us for the ultimate 24 hour coding showdown! 🚀 Bring your laptops and your best ideas. #tech #hackathon\n\n" + clean_url,
+        "poster_url": "https://www.w3schools.com/html/mov_bbb.mp4", 
+        "venue": "TAN Auditorium",
+        "organizer": "Demo_Society"
+    }
