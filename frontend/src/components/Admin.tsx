@@ -7,20 +7,18 @@ const API_HOST = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000
 export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: string) => void }) {
   const token = localStorage.getItem('cf_token');
   
-  // Top Level Tabs
   const [mainTab, setMainTab] = useState<'moderator' | 'database'>('moderator');
   
-  // Moderator State
-  const [modTab, setModTab] = useState<'menus' | 'vault' | 'timetables'>('menus');
+  // 🚀 REPLACED TIMETABLES WITH MARKET & EVENTS
+  const [modTab, setModTab] = useState<'menus' | 'vault' | 'market' | 'events'>('menus');
   const [menus, setMenus] = useState<any[]>([]);
   const [vaultItems, setVaultItems] = useState<any[]>([]);
-  const [timetables, setTimetables] = useState<any[]>([]);
+  const [marketItems, setMarketItems] = useState<any[]>([]);
+  const [eventItems, setEventItems] = useState<any[]>([]);
 
-  // Database State
   const [tables, setTables] = useState<string[]>([]);
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [tableData, setTableData] = useState<any[]>([]);
-  
   const [editingRow, setEditingRow] = useState<any>(null);
   const [editJson, setEditJson] = useState('');
 
@@ -31,38 +29,26 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
       setEditingRow(null);
       fetchTableRows(selectedTable);
       alert(`Successfully executed ${action}`);
-    } catch (e: any) {
-      alert("DB Error: " + (e.response?.data?.detail || e.message));
-    }
+    } catch (e: any) { alert("DB Error: " + (e.response?.data?.detail || e.message)); }
   };
 
   const fetchModeratorData = async () => {
     try {
-      if (modTab === 'menus') {
-        const res = await axios.get(`${API_HOST}/admin/menus?token=${token}`);
-        setMenus(res.data);
-      } else if (modTab === 'vault') {
-        const res = await axios.get(`${API_HOST}/admin/vault?token=${token}`);
-        setVaultItems(res.data);
-      } else if (modTab === 'timetables') {
-        const res = await axios.get(`${API_HOST}/admin/timetables?token=${token}`);
-        setTimetables(res.data);
-      }
+      if (modTab === 'menus') setMenus((await axios.get(`${API_HOST}/admin/menus?token=${token}`)).data);
+      else if (modTab === 'vault') setVaultItems((await axios.get(`${API_HOST}/admin/vault?token=${token}`)).data);
+      else if (modTab === 'market') setMarketItems((await axios.get(`${API_HOST}/admin/market?token=${token}`)).data);
+      else if (modTab === 'events') setEventItems((await axios.get(`${API_HOST}/admin/events?token=${token}`)).data);
     } catch (e) { console.error("Fetch Error"); }
   };
 
   const fetchTables = async () => {
-    try {
-      const tableRes = await axios.get(`${API_HOST}/admin/db/tables?token=${token}`);
-      setTables(tableRes.data);
+    try { setTables((await axios.get(`${API_HOST}/admin/db/tables?token=${token}`)).data);
     } catch (e) { console.error("DB Fetch Error"); }
   };
 
   const fetchTableRows = async (tableName: string) => {
     setSelectedTable(tableName);
-    try {
-      const res = await axios.get(`${API_HOST}/admin/db/table/${tableName}?token=${token}`);
-      setTableData(res.data);
+    try { setTableData((await axios.get(`${API_HOST}/admin/db/table/${tableName}?token=${token}`)).data);
     } catch (e) { alert("Failed to fetch rows."); }
   };
 
@@ -72,14 +58,14 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
   }, [mainTab, modTab]);
 
   const deleteItem = async (type: string, id: number) => {
-    if(!confirm("Are you sure you want to delete this?")) return;
+    if(!confirm("Are you sure you want to completely delete this?")) return;
     await axios.delete(`${API_HOST}/admin/${type}/${id}?token=${token}`);
     fetchModeratorData();
   };
 
-  const updateVaultStatus = async (id: number, action: 'approve' | 'reject') => {
-    if (action === 'approve') await axios.put(`${API_HOST}/admin/vault/${id}/approve?token=${token}`);
-    if (action === 'reject') await axios.delete(`${API_HOST}/admin/vault/${id}/reject?token=${token}`);
+  const updateQueueStatus = async (type: string, id: number, action: 'approve' | 'reject') => {
+    if (action === 'approve') await axios.put(`${API_HOST}/admin/${type}/${id}/approve?token=${token}`);
+    if (action === 'reject') await axios.delete(`${API_HOST}/admin/${type}/${id}/reject?token=${token}`);
     fetchModeratorData();
   };
 
@@ -98,7 +84,6 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
         </button>
       </div>
 
-      {/* TOP TABS */}
       <div className="flex gap-2 mb-6">
         <button onClick={() => setMainTab('moderator')} className={`flex-1 py-3 font-black text-xs uppercase tracking-widest rounded-lg border-2 transition-colors ${mainTab === 'moderator' ? 'bg-red-900/40 text-red-400 border-red-500/50' : 'bg-slate-900 text-slate-500 border-slate-800'}`}>
           <AlertOctagon size={14} className="inline mr-2"/> Moderator
@@ -108,13 +93,10 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
         </button>
       </div>
 
-      {/* ========================================== */}
-      {/* MODERATOR VIEW */}
-      {/* ========================================== */}
       {mainTab === 'moderator' && (
         <div className="space-y-4">
           <div className="flex gap-2 mb-4 overflow-x-auto hide-scrollbar">
-            {['menus', 'vault', 'timetables'].map(tab => (
+            {['menus', 'vault', 'market', 'events'].map(tab => (
               <button key={tab} onClick={() => setModTab(tab as any)} className={`px-4 py-2 font-bold text-xs uppercase rounded-md border ${modTab === tab ? 'bg-slate-800 text-white border-slate-600' : 'bg-transparent text-slate-500 border-slate-800'}`}>
                 {tab}
               </button>
@@ -130,15 +112,9 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
                   <h3 className="font-black text-lg text-white">{menu.hostel}</h3>
                   {menu.report_count > 0 && <span className="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded font-bold uppercase">{menu.report_count} Reports</span>}
                 </div>
-                {/* --- ADDED CLICK-TO-VIEW FOR ADMIN --- */}
-                <div 
-                  className="cursor-pointer group relative rounded border border-slate-700 overflow-hidden w-16 h-16 shrink-0" 
-                  title="Click to view full image"
-                >
-                  <img src={menu.image_url} alt="Menu" className="w-full h-full object-cover group-hover:opacity-40 transition-opacity" />
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
-                    <Search size={20} className="text-white drop-shadow-md" />
-                  </div>
+                <div className="cursor-pointer group relative rounded border border-slate-700 overflow-hidden w-16 h-16 shrink-0">
+                  <img src={menu.image_url} className="w-full h-full object-cover group-hover:opacity-40 transition-opacity" />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none"><Search size={20} className="text-white drop-shadow-md" /></div>
                 </div>
               </div>
               <button onClick={() => deleteItem('menus', menu.id)} className="w-full mt-4 py-2 bg-slate-800 text-red-400 font-bold text-xs uppercase rounded hover:bg-slate-700">Delete Menu</button>
@@ -156,8 +132,8 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
               </div>
               {res.status === 'pending' ? (
                 <div className="flex gap-2">
-                  <button onClick={() => updateVaultStatus(res.id, 'reject')} className="flex-1 py-2 bg-slate-800 text-slate-400 font-bold text-xs uppercase rounded">Reject</button>
-                  <button onClick={() => updateVaultStatus(res.id, 'approve')} className="flex-1 py-2 bg-blue-600 text-white font-bold text-xs uppercase rounded">Approve</button>
+                  <button onClick={() => updateQueueStatus('vault', res.id, 'reject')} className="flex-1 py-2 bg-slate-800 text-slate-400 font-bold text-xs uppercase rounded">Reject</button>
+                  <button onClick={() => updateQueueStatus('vault', res.id, 'approve')} className="flex-1 py-2 bg-blue-600 text-white font-bold text-xs uppercase rounded">Approve</button>
                 </div>
               ) : (
                 <button onClick={() => deleteItem('vault', res.id)} className="w-full py-2 bg-slate-800 text-red-400 font-bold text-xs uppercase rounded">Delete Resource</button>
@@ -165,23 +141,55 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
             </div>
           ))}
 
-          {/* TIMETABLES */}
-          {modTab === 'timetables' && timetables.length === 0 && <p className="text-center text-slate-600 text-sm font-bold mt-10">No timetables synced.</p>}
-          {modTab === 'timetables' && timetables.map(tt => (
-            <div key={tt.id} className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex justify-between items-center">
-              <div>
-                <h3 className="font-black text-lg text-purple-400">Batch {tt.batch}</h3>
-                <p className="text-xs text-slate-500">Updated: {new Date(tt.updated_at).toLocaleDateString()}</p>
+          {/* MARKETPLACE QUEUE */}
+          {modTab === 'market' && marketItems.length === 0 && <p className="text-center text-slate-600 text-sm font-bold mt-10">Marketplace is clean.</p>}
+          {modTab === 'market' && marketItems.map(item => (
+            <div key={item.id} className={`bg-slate-900 border-2 rounded-xl p-4 ${item.status === 'pending' ? 'border-yellow-500/50' : 'border-slate-700'}`}>
+              <div className="flex justify-between">
+                <div>
+                  <h3 className="font-black text-lg text-white">{item.title}</h3>
+                  <p className="text-lime-400 font-bold text-sm">₹{item.price}</p>
+                </div>
+                <div className="w-16 h-16 shrink-0 rounded border border-slate-700 overflow-hidden"><img src={item.image_url} className="w-full h-full object-cover"/></div>
               </div>
-              <button onClick={() => deleteItem('timetables', tt.id)} className="p-2 bg-red-900/30 text-red-400 rounded"><Trash2 size={18} /></button>
+              <div className="flex justify-between items-center mb-3 mt-2">
+                <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${item.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'}`}>{item.status}</span>
+              </div>
+              {item.status === 'pending' ? (
+                <div className="flex gap-2">
+                  <button onClick={() => updateQueueStatus('market', item.id, 'reject')} className="flex-1 py-2 bg-slate-800 text-slate-400 font-bold text-xs uppercase rounded">Reject</button>
+                  <button onClick={() => updateQueueStatus('market', item.id, 'approve')} className="flex-1 py-2 bg-blue-600 text-white font-bold text-xs uppercase rounded">Approve</button>
+                </div>
+              ) : (
+                <button onClick={() => deleteItem('market', item.id)} className="w-full py-2 bg-slate-800 text-red-400 font-bold text-xs uppercase rounded">Delete from Feed</button>
+              )}
+            </div>
+          ))}
+
+          {/* EVENTS QUEUE */}
+          {modTab === 'events' && eventItems.length === 0 && <p className="text-center text-slate-600 text-sm font-bold mt-10">No events pending.</p>}
+          {modTab === 'events' && eventItems.map(ev => (
+            <div key={ev.id} className={`bg-slate-900 border-2 rounded-xl p-4 ${ev.status === 'pending' ? 'border-yellow-500/50' : 'border-slate-700'}`}>
+              <h3 className="font-black text-lg text-white">{ev.title}</h3>
+              <p className="text-rose-400 font-bold text-xs mb-2">by @{ev.organizer_name}</p>
+              
+              <div className="flex justify-between items-center mb-3 mt-2">
+                <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${ev.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'}`}>{ev.status}</span>
+              </div>
+              {ev.status === 'pending' ? (
+                <div className="flex gap-2">
+                  <button onClick={() => updateQueueStatus('events', ev.id, 'reject')} className="flex-1 py-2 bg-slate-800 text-slate-400 font-bold text-xs uppercase rounded">Reject</button>
+                  <button onClick={() => updateQueueStatus('events', ev.id, 'approve')} className="flex-1 py-2 bg-blue-600 text-white font-bold text-xs uppercase rounded">Approve</button>
+                </div>
+              ) : (
+                <button onClick={() => deleteItem('events', ev.id)} className="w-full py-2 bg-slate-800 text-red-400 font-bold text-xs uppercase rounded">Delete Event from Feed</button>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {/* ========================================== */}
       {/* DATABASE CRUD VIEW */}
-      {/* ========================================== */}
       {mainTab === 'database' && (
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-4">
@@ -199,7 +207,6 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
               </button>
             </div>
 
-            {/* RAW JSON EDITOR MODAL */}
             {editingRow && (
               <div className="mb-4 p-4 bg-slate-950 border border-blue-500/50 rounded-lg">
                 <h3 className="text-xs font-bold text-blue-400 mb-2 uppercase">Raw JSON Editor</h3>
@@ -218,7 +225,6 @@ export default function AdminDashboard({ navigateTo }: { navigateTo: (tab: strin
               </div>
             )}
 
-            {/* TABLE VIEWER */}
             {selectedTable && !editingRow && (
               <div className="overflow-x-auto bg-slate-950 rounded border border-slate-800 max-h-[400px] overflow-y-auto hide-scrollbar">
                 <table className="w-full text-left text-xs text-slate-300">

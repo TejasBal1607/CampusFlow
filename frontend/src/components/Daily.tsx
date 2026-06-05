@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect , useRef} from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, MapPin, Camera, Radio, FolderOpen, X, Search, Plus, CheckCircle2, XCircle, Slash, ChevronDown, ChevronRight, FileText, RotateCcw, Trash2, Loader2, AlertTriangle, CalendarDays, Target, UploadCloud, Flag, Edit2, CheckSquare } from 'lucide-react';
@@ -39,10 +39,7 @@ export default function Daily() {
   const [showAddComm, setShowAddComm] = useState(false);
   const [showWeekSchedule, setShowWeekSchedule] = useState(false);
   
-  const [needsSync, setNeedsSync] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [weekSchedule, setWeekSchedule] = useState<any[]>([]);
-  const syncInputRef = useRef<HTMLInputElement>(null);
   
   const [messMenuData, setMessMenuData] = useState<{id: number, url: string, uploader: string, time: string} | null>(null);
   const [showMenuViewer, setShowMenuViewer] = useState(false);
@@ -50,20 +47,12 @@ export default function Daily() {
   const menuFileInputRef = useRef<HTMLInputElement>(null);
   
   const [userData, setUserData] = useState({ 
-    email: '', 
-    batch: '1A84', 
-    hostel: 'Day Scholar', 
-    stream: 'COE', 
-    role: 'student',
-    semester: 1
+    email: '', batch: '1A84', hostel: 'Day Scholar', stream: 'COE', role: 'student', semester: 1
   });
   
   const isAdmin = userData.role === 'super_admin' || userData.email === 'tejas1607.best@gmail.com';
   const isGuest = userData.role === 'guest';
   const isUnassigned = userData.batch === 'Unassigned' || !userData.batch;
-
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({ 'streams': true, 'coe': true });
-  const toggleFolder = (folderId: string) => setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
 
   const [todayClasses, setTodayClasses] = useState<ClassSession[]>([]);
   const [bunkMeter, setBunkMeter] = useState<any[]>([]);
@@ -74,16 +63,12 @@ export default function Daily() {
   const [newComm, setNewComm] = useState({ tag: '', text: '', urgent: false, targetType: 'ALL', targetValue: '' });
 
   const [liveMins, setLiveMins] = useState(new Date().getHours() * 60 + new Date().getMinutes());
-
-  // --- TODO STATE ---
   const [todos, setTodos] = useState<any[]>([]);
   const [isTodoOpen, setIsTodoOpen] = useState(false);
   const [newTodoTask, setNewTodoTask] = useState('');
   
   useEffect(() => {
-    const timer = setInterval(() => {
-      setLiveMins(new Date().getHours() * 60 + new Date().getMinutes());
-    }, 60000);
+    const timer = setInterval(() => setLiveMins(new Date().getHours() * 60 + new Date().getMinutes()), 60000);
     return () => clearInterval(timer);
   }, []);
 
@@ -93,18 +78,13 @@ export default function Daily() {
       const userEmail = profileRes.data.email;
       const userHostel = profileRes.data.hostel || 'Day Scholar';
       setUserData({
-        email: userEmail,
-        batch: profileRes.data.batch || '1A84',
-        hostel: userHostel,
-        stream: profileRes.data.stream || 'COE',
-        role: profileRes.data.role || 'student',
-        semester: profileRes.data.semester || 1
+        email: userEmail, batch: profileRes.data.batch || '1A84', hostel: userHostel,
+        stream: profileRes.data.stream || 'COE', role: profileRes.data.role || 'student', semester: profileRes.data.semester || 1
       });
 
       try {
         const timeRes = await axios.get(`${API_HOST}/daily/timetable?token=${token}`);
         setWeekSchedule(timeRes.data);
-        setNeedsSync(false);
         
         const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const currentDay = days[new Date().getDay()];
@@ -114,22 +94,17 @@ export default function Daily() {
           const storageKey = getTodayKey();
           const savedState = JSON.parse(localStorage.getItem(storageKey) || '{}');
 
-          const mappedClasses = todayData.classes.map((c: any, i: number) => {
-            return {
-              ...c,
-              id: i + 1,
-              attendance: savedState[c.name] || null
-            };
-          });
+          const mappedClasses = todayData.classes.map((c: any, i: number) => ({
+            ...c, id: i + 1, attendance: savedState[c.name] || null
+          }));
           setTodayClasses(mappedClasses);
         } else {
           setTodayClasses([]); 
         }
       } catch (err: any) {
-        if (err.response?.status === 404) setNeedsSync(true);
+        setTodayClasses([]); // If Master JSON fails, just show no classes
       }
 
-      // Fetch Comms, Bunk Data, and Todos in parallel!
       const [commsRes, bunkRes, todoRes] = await Promise.all([
         axios.get(`${API_HOST}/daily/comms?token=${token}`),
         axios.get(`${API_HOST}/daily/bunk?token=${token}`),
@@ -144,13 +119,9 @@ export default function Daily() {
           const menuRes = await axios.get(`${API_HOST}/daily/mess-menu?hostel=${encodeURIComponent(userHostel)}&token=${token}`);
           if (menuRes.data && menuRes.data.image_url) {
             const rawUrl = menuRes.data.image_url;
-            const finalUrl = rawUrl.startsWith('data:') ? rawUrl : `${API_HOST}${rawUrl}`;
-            
             setMessMenuData({
-              id: menuRes.data.id,
-              url: finalUrl,
-              uploader: menuRes.data.uploader_name,
-              time: new Date(menuRes.data.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+              id: menuRes.data.id, url: rawUrl.startsWith('data:') ? rawUrl : `${API_HOST}${rawUrl}`,
+              uploader: menuRes.data.uploader_name, time: new Date(menuRes.data.updated_at + 'Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
             });
           }
         } catch (e) { }
@@ -162,13 +133,8 @@ export default function Daily() {
     }
   };
 
-  useEffect(() => {
-    if (token) fetchDailyData();
-  }, [token]);
+  useEffect(() => { if (token) fetchDailyData(); }, [token]);
 
-  // ==========================================
-  // TODO LIST FUNCTIONS
-  // ==========================================
   const handleAddTodo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTodoTask.trim()) return;
@@ -180,44 +146,15 @@ export default function Daily() {
   };
 
   const handleToggleTodo = async (todo: any) => {
-    // Optimistic UI Update for instant feedback
     setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, is_completed: !t.is_completed } : t));
-    try {
-      await axios.put(`${API_HOST}/daily/todo/${todo.id}?token=${token}`, { is_completed: !todo.is_completed });
-    } catch (error) {
-      // Revert if API fails
-      setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, is_completed: todo.is_completed } : t));
-    }
+    try { await axios.put(`${API_HOST}/daily/todo/${todo.id}?token=${token}`, { is_completed: !todo.is_completed });
+    } catch (error) { setTodos(prev => prev.map(t => t.id === todo.id ? { ...t, is_completed: todo.is_completed } : t)); }
   };
 
   const handleDeleteTodo = async (id: number) => {
     setTodos(prev => prev.filter(t => t.id !== id));
-    try {
-      await axios.delete(`${API_HOST}/daily/todo/${id}?token=${token}`);
+    try { await axios.delete(`${API_HOST}/daily/todo/${id}?token=${token}`);
     } catch (error) { console.error("Failed to delete task", error); }
-  };
-
-  // ==========================================
-  // EXISTING HUB FUNCTIONS
-  // ==========================================
-  const handleSyncUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (isGuest) return alert("Only verified users can upload timetables.");
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setIsSyncing(true);
-    const formData = new FormData();
-    formData.append('image', file);
-
-    try {
-      await axios.post(`${API_HOST}/daily/timetable/sync?token=${token}`, formData);
-      fetchDailyData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "AI Sync failed. Please make sure you uploaded a clear PNG of the timetable.");
-    } finally {
-      setIsSyncing(false);
-      if (syncInputRef.current) syncInputRef.current.value = '';
-    }
   };
 
   const handleMenuUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -231,28 +168,17 @@ export default function Daily() {
     formData.append('hostel', userData.hostel);
     try {
       const res = await axios.post(`${API_HOST}/daily/mess-menu?token=${token}`, formData);
-      setMessMenuData({
-        id: res.data.id,
-        url: res.data.image_url, 
-        uploader: res.data.uploader_name,
-        time: 'Just now'
-      });
+      setMessMenuData({ id: res.data.id, url: res.data.image_url, uploader: res.data.uploader_name, time: 'Just now' });
       setShowMenuViewer(true);
-    } catch (error) {
-      alert("Failed to upload menu. Please try again.");
-    } finally {
-      setIsUploadingMenu(false);
-      if (menuFileInputRef.current) menuFileInputRef.current.value = '';
-    }
+    } catch (error) { alert("Failed to upload menu. Please try again.");
+    } finally { setIsUploadingMenu(false); if (menuFileInputRef.current) menuFileInputRef.current.value = ''; }
   };
 
   const handleMarkAttendance = async (classId: number, subjectName: string, status: 'attended' | 'bunked' | 'cancelled' | null) => {
     setTodayClasses(classes => classes.map(c => c.id === classId ? { ...c, attendance: status } : c));
-    
     const storageKey = getTodayKey();
     const savedState = JSON.parse(localStorage.getItem(storageKey) || '{}');
-    if (status === null) delete savedState[subjectName];
-    else savedState[subjectName] = status;
+    if (status === null) delete savedState[subjectName]; else savedState[subjectName] = status;
     localStorage.setItem(storageKey, JSON.stringify(savedState));
 
     const tracker = bunkMeter.find(b => b.subject === subjectName);
@@ -262,7 +188,6 @@ export default function Daily() {
         if (status === 'attended') actionStr = 'attend';
         if (status === 'bunked') actionStr = 'bunk';
         if (status === 'cancelled') actionStr = 'cancel';
-        
         await axios.put(`${API_HOST}/daily/bunk/${tracker.id}?token=${token}`, { action: actionStr });
         const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
         setBunkMeter(bunkRes.data);
@@ -275,14 +200,11 @@ export default function Daily() {
       setBunkMeter([]);
       setTodayClasses(classes => classes.map(c => ({ ...c, attendance: null })));
       localStorage.removeItem(getTodayKey());
-
       try {
         await axios.delete(`${API_HOST}/daily/bunk/reset?token=${token}`);
         const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
         setBunkMeter(bunkRes.data);
-      } catch (e) {
-        console.error("Failed to wipe bunk meter");
-      }
+      } catch (e) { console.error("Failed to wipe bunk meter"); }
     }
   };
 
@@ -307,21 +229,17 @@ export default function Daily() {
     if (!editingBunk) return;
     try {
       await axios.put(`${API_HOST}/daily/bunk/${editingBunk.id}/manual?token=${token}`, {
-        attended: editingBunk.attended,
-        bunked: editingBunk.bunked
+        attended: editingBunk.attended, bunked: editingBunk.bunked
       });
       setEditingBunk(null);
       const bunkRes = await axios.get(`${API_HOST}/daily/bunk?token=${token}`);
       setBunkMeter(bunkRes.data);
-    } catch (error: any) {
-      alert(error.response?.data?.detail || "Failed to update past data.");
-    }
+    } catch (error: any) { alert(error.response?.data?.detail || "Failed to update past data."); }
   };
 
   const handleBroadcast = async () => {
     if (!newComm.tag || !newComm.text) return alert("Tag and Text are required!");
     if (newComm.targetType !== 'ALL' && !newComm.targetValue) return alert("Please specify the target value.");
-
     const payload: any = { tag: newComm.tag.toUpperCase(), text: newComm.text, urgent: newComm.urgent };
     if (newComm.targetType === 'HOSTEL') payload.target_hostel = newComm.targetValue;
     if (newComm.targetType === 'BATCH') payload.target_batch = newComm.targetValue;
@@ -338,12 +256,8 @@ export default function Daily() {
 
   const handleDeleteComm = async (commId: number) => {
     if (!confirm("Delete this broadcast from the radar?")) return;
-    try {
-      await axios.delete(`${API_HOST}/daily/comms/${commId}?token=${token}`);
-      fetchDailyData();
-    } catch (error) {
-      alert("Failed to delete comm.");
-    }
+    try { await axios.delete(`${API_HOST}/daily/comms/${commId}?token=${token}`); fetchDailyData();
+    } catch (error) { alert("Failed to delete comm."); }
   };
 
   const getTypeColor = (type: string) => {
@@ -363,9 +277,8 @@ export default function Daily() {
         </div>
         
         <div 
-          onClick={() => !needsSync && setShowWeekSchedule(true)}
-          className={`tour-weekly-tt text-right flex flex-col items-end justify-center transition-transform ${needsSync ? 'opacity-50' : 'cursor-pointer hover:scale-105'}`}
-          title={needsSync ? "Sync required to view week" : "View Full Week Schedule"}
+          onClick={() => setShowWeekSchedule(true)}
+          className={`tour-weekly-tt text-right flex flex-col items-end justify-center transition-transform cursor-pointer hover:scale-105`}
         >
           <span className="text-2xl font-black text-blue-400 font-caveat leading-none">
             {(new Date()).toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
@@ -383,28 +296,8 @@ export default function Daily() {
           <FileText size={40} className="text-slate-600 mb-3" />
           <h3 className="text-xl font-black text-slate-300 uppercase tracking-widest mb-2">Batch Unassigned</h3>
           <p className="text-sm font-bold text-slate-500 font-sans mb-4 max-w-[250px]">
-            Please select your batch in Settings to unlock the class tracker and timetable.
+            Please select your batch in Settings to unlock the class tracker.
           </p>
-        </div>
-      ) : needsSync ? (
-        <div className="bg-slate-900/80 border-2 border-slate-700 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center mt-2">
-          <FileText size={40} className="text-slate-600 mb-3" />
-          <h3 className="text-xl font-black text-slate-300 uppercase tracking-widest mb-2">Sync Required</h3>
-          <p className="text-sm font-bold text-slate-500 font-sans mb-4 max-w-[250px]">
-            Be the hero for batch <span className="text-blue-400">{userData.batch}</span>. Upload the ACM timetable PNG to unlock the schedule for everyone.
-          </p>
-          <input type="file" accept="image/*" ref={syncInputRef} className="hidden" onChange={handleSyncUpload} />
-          <button 
-            onClick={() => {
-              if(isGuest) return alert("Only verified users can upload timetables.");
-              syncInputRef.current?.click();
-            }} 
-            disabled={isSyncing || isGuest}
-            className={`py-3 px-6 font-black text-white border-2 rounded-lg flex items-center gap-2 uppercase tracking-widest disabled:opacity-50 transition-colors ${isGuest ? 'bg-slate-700 border-slate-600 cursor-not-allowed' : 'bg-blue-600 border-blue-500 hover:bg-blue-500'}`}
-          >
-            {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <UploadCloud size={18} />}
-            {isSyncing ? 'Extracting Data...' : (isGuest ? 'Verified Only' : 'Upload PNG')}
-          </button>
         </div>
       ) : todayClasses.length === 0 ? (
         <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-6 text-center text-slate-500 font-sans font-bold mt-2">
@@ -669,12 +562,8 @@ export default function Daily() {
         {renderComms()}
       </main>
 
-      {/* ========================================== */}
-      {/* FLOATING ACTION BUTTONS (FABs) */}
-      {/* ========================================== */}
       <div className="fixed bottom-24 right-4 z-40 flex flex-col gap-4 items-end pointer-events-none">
         
-        {/* DAILY OPS (TODO) PANEL */}
         <AnimatePresence>
           {isTodoOpen && (
             <motion.div
@@ -724,7 +613,6 @@ export default function Daily() {
           )}
         </AnimatePresence>
 
-        {/* TODO LIST BUTTON */}
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -732,7 +620,6 @@ export default function Daily() {
           className="tour-daily-todo pointer-events-auto bg-lime-400 text-slate-900 p-4 rounded-2xl shadow-[4px_4px_0px_#000] border-2 border-slate-900 flex items-center justify-center gap-2 group relative"
         >
           <CheckSquare size={28} strokeWidth={2.5} />
-          {/* Notification Badge for Carry Forward Tasks */}
           {todos.filter(t => !t.is_completed).length > 0 && !isTodoOpen && (
             <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-black w-6 h-6 flex items-center justify-center rounded-full border-2 border-slate-900">
               {todos.filter(t => !t.is_completed).length}
@@ -740,7 +627,6 @@ export default function Daily() {
           )}
         </motion.button>
 
-        {/* ACAD VAULT BUTTON */}
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -749,12 +635,7 @@ export default function Daily() {
         >
           <FolderOpen size={28} strokeWidth={2.5} />
         </motion.button>
-
       </div>
-
-      {/* ========================================== */}
-      {/* MODALS */}
-      {/* ========================================== */}
 
       <AnimatePresence>
         {editingBunk && (
@@ -820,9 +701,7 @@ export default function Daily() {
                       alert(res.data.message);
                       setShowMenuViewer(false);
                       fetchDailyData();
-                    } catch (e: any) {
-                      alert(e.response?.data?.detail || "Failed to report menu.");
-                    }
+                    } catch (e: any) { alert(e.response?.data?.detail || "Failed to report menu."); }
                   }} 
                   className="py-4 px-6 font-black bg-slate-900 text-red-500 border-2 border-slate-800 rounded-xl flex items-center justify-center hover:bg-slate-800 transition-colors"
                 >
@@ -858,7 +737,7 @@ export default function Daily() {
                 <button onClick={() => setShowWeekSchedule(false)} className="p-2 bg-slate-800 rounded-full text-slate-400 hover:text-white"><X size={20} /></button>
               </div>
 
-              <div className="p-4 overflow-y-auto flex-1 hide-scrollbar bg-slate-950/50 space-y-4">
+              <div className="p-4 overflow-y-auto flex-1 hide-scrollbar bg-slate-950/50 space-y-4 pb-12">
                 {weekSchedule.map((dayData, idx) => (
                   <div key={idx} className="bg-slate-900 border-2 border-slate-800 rounded-xl p-3">
                     <h3 className="text-lg font-black text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-800 pb-1">{dayData.day}</h3>
@@ -866,7 +745,8 @@ export default function Daily() {
                       {(dayData.classes || []).map((c: any, i: number) => (
                          <div key={i} className="text-sm font-bold text-slate-400 font-sans flex items-center justify-between gap-2 min-w-0">
                            <div className="flex items-center gap-2 min-w-0">
-                            <div className={`w-2 h-2 rounded-full shrink-0 ${c.type === 'Lecture' ? 'bg-green-500' : (c.type === 'Lab' || c.type === 'Practical') ? 'bg-yellow-400' : 'bg-purple-500'}`} />                             <span className="truncate">{c.name}</span>
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${c.type === 'Lecture' ? 'bg-green-500' : (c.type === 'Lab' || c.type === 'Practical') ? 'bg-yellow-400' : 'bg-purple-500'}`} />                             
+                            <span className="truncate">{c.name}</span>
                            </div>
                            <span className="text-slate-500 text-xs whitespace-nowrap shrink-0">
                               ({(c.time || c.start_time || "").split('-')[0]?.trim() || "TBA"})
@@ -878,21 +758,6 @@ export default function Daily() {
                   </div>
                 ))}
               </div>
-
-              <div className="p-4 border-t-2 border-slate-800 bg-slate-900">
-                <input type="file" accept="image/*" ref={syncInputRef} className="hidden" onChange={handleSyncUpload} />
-                <button 
-                  onClick={() => {
-                    if (isGuest) return alert("Link a verified Thapar ID to use AI Sync.");
-                    syncInputRef.current?.click();
-                  }}
-                  disabled={isSyncing || isGuest}
-                  className={`w-full py-3 font-black text-blue-400 border-2 border-dashed rounded-xl flex items-center justify-center gap-2 uppercase tracking-widest transition-colors ${isGuest ? 'bg-slate-800 border-slate-700 opacity-50 cursor-not-allowed' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
-                >
-                  {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <RotateCcw size={18} />}
-                  {isSyncing ? 'Re-Syncing...' : (isGuest ? 'AI Sync (Verified Only)' : 'Fix Errors (Re-upload)')}
-                </button>
-              </div>
             </motion.div>
           </>
         )}
@@ -900,12 +765,7 @@ export default function Daily() {
 
       <AnimatePresence>
         {showArchives && (
-          <AcadVault
-            onClose={() => setShowArchives(false)}
-            isGuest={isGuest}
-            userStream={userData.stream}
-            currentUserId={currentUserId}
-          />
+          <AcadVault onClose={() => setShowArchives(false)} isGuest={isGuest} userStream={userData.stream} currentUserId={currentUserId} />
         )}
       </AnimatePresence>
 

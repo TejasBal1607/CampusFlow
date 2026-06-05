@@ -136,19 +136,6 @@ class MessMenu(Base):
     uploader = relationship("User")
 
 
-class TimetableCache(Base):
-    __tablename__ = "timetable_cache"
-    id = Column(Integer, primary_key=True, index=True)
-    batch = Column(String, unique=True, index=True) 
-    schedule_data = Column(JSON) 
-    # Note: updated_at serves perfectly for our 24-hour API cooldown check
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-# ==========================================
-# NEW TABLES: THE SLEEPING GIANTS
-# ==========================================
-
 class AcadResource(Base):
     __tablename__ = "acad_resources"
     id = Column(Integer, primary_key=True, index=True)
@@ -175,6 +162,7 @@ class MarketListing(Base):
     
     is_sold = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, default="pending") # "pending", "approved", "rejected"
 
 
 class Location(Base):
@@ -209,7 +197,8 @@ class Event(Base):
     end_time = Column(DateTime, nullable=False) # Frontend will use this to auto-delete expired stories
     likes = Column(Integer, default=0)
     info_link = Column(String, nullable=True) # For "More Info" button on the event story
-    status = Column(String, default="pending") # 'pending', 'approved'
+    organizer_name = Column(String, nullable=True)
+    status = Column(String, default="pending")
     created_at = Column(DateTime, default=datetime.utcnow)
     liked_by_users = Column(JSON, default=list) # 🚀 Tracks WHO liked the event
 

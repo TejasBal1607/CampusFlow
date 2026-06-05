@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import text, inspect # <-- Added inspect to physically read the DB
+from sqlalchemy import text, inspect
 from app import models
 from app.database import get_db
 from app.routers.auth import get_current_user
@@ -47,17 +47,47 @@ def reject_resource(resource_id: int, db: Session = Depends(get_db), admin: mode
         db.commit()
     return {"message": "Resource rejected."}
 
-@router.get("/timetables")
-def get_all_timetables(db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
-    return db.query(models.TimetableCache).all()
+# 🚀 MARKETPLACE QUEUE
+@router.get("/market")
+def get_all_market(db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
+    return db.query(models.MarketListing).order_by(models.MarketListing.created_at.desc()).all()
 
-@router.delete("/timetables/{cache_id}")
-def delete_timetable(cache_id: int, db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
-    tt = db.query(models.TimetableCache).filter(models.TimetableCache.id == cache_id).first()
-    if tt:
-        db.delete(tt)
+@router.put("/market/{item_id}/approve")
+def approve_market(item_id: int, db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
+    item = db.query(models.MarketListing).filter(models.MarketListing.id == item_id).first()
+    if item: 
+        item.status = "approved"
         db.commit()
-    return {"message": "Timetable cache cleared."}
+    return {"status": "approved"}
+
+@router.delete("/market/{item_id}/reject")
+def reject_market(item_id: int, db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
+    item = db.query(models.MarketListing).filter(models.MarketListing.id == item_id).first()
+    if item: 
+        db.delete(item)
+        db.commit()
+    return {"status": "rejected"}
+    
+# 🚀 EVENTS QUEUE
+@router.get("/events")
+def get_all_events(db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
+    return db.query(models.Event).order_by(models.Event.created_at.desc()).all()
+
+@router.put("/events/{event_id}/approve")
+def approve_event(event_id: int, db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if event: 
+        event.status = "approved"
+        db.commit()
+    return {"status": "approved"}
+
+@router.delete("/events/{event_id}/reject")
+def reject_event(event_id: int, db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
+    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    if event: 
+        db.delete(event)
+        db.commit()
+    return {"status": "rejected"}
 
 # ==========================================
 # 2. DATABASE CRUD
@@ -65,7 +95,6 @@ def delete_timetable(cache_id: int, db: Session = Depends(get_db), admin: models
 
 @router.get("/db/tables")
 def get_tables(db: Session = Depends(get_db), admin: models.User = Depends(require_super_admin)):
-    # Physically inspects the Postgres DB instead of relying on SQLAlchemy metadata cache
     inspector = inspect(db.get_bind())
     return inspector.get_table_names()
 
@@ -87,7 +116,6 @@ def execute_raw_sql(table_name: str, payload: dict, action: str, db: Session = D
         elif action == "insert":
             cols = ", ".join(payload.keys())
             vals = ", ".join([f":{k}" for k in payload.keys()])
-            # Fixed missing payload argument here!
             db.execute(text(f"INSERT INTO {table_name} ({cols}) VALUES ({vals})"), payload)
             
         db.commit()
